@@ -30,10 +30,21 @@ def run(cfg: Config, agent: Agent) -> None:
         elif m.document and (m.document.mime_type or "").startswith("image/"):
             f = await m.document.get_file()
             atts.append(Attachment(mime=m.document.mime_type, data=bytes(await f.download_as_bytearray())))
-        inbound = Inbound(user_id=uid, text=m.text or m.caption or "", attachments=atts, received_at=datetime.now(cfg.tz))
+        now = datetime.now(cfg.tz)
+        text = m.text or m.caption or ""
         await m.chat.send_action("typing")
+        chat = str(m.chat_id)
+        replied = m.reply_to_message
+        pid = agent.proposal_for_message(chat, str(replied.message_id)) if replied else None
         try:
-            proposal = await asyncio.to_thread(agent.propose, inbound)  # blocking LLM + calendar calls
+            if pid and text and not atts:  # reply to a pending proposal = edit it
+                proposal = await asyncio.to_thread(agent.revise, pid, uid, text, now)
+                if proposal is None:
+                    await m.reply_text("That proposal is no longer pending. Send the event again.")
+                    return
+            else:
+                inbound = Inbound(user_id=uid, text=text, attachments=atts, received_at=now)
+                proposal = await asyncio.to_thread(agent.propose, inbound)  # blocking LLM + calendar calls
         except Exception as e:  # noqa: BLE001 - surface any failure to the user instead of silence
             await m.reply_text(f"Sorry, that failed: {e}")
             return
@@ -43,7 +54,10 @@ def run(cfg: Config, agent: Agent) -> None:
                 InlineKeyboardButton("Add to calendar", callback_data=f"ok:{proposal.id}"),
                 InlineKeyboardButton("Cancel", callback_data=f"no:{proposal.id}"),
             ]])
-        await m.reply_text(render(proposal), reply_markup=markup)
+        footer = "\n\n(Reply to this message to change it.)" if proposal.events else ""
+        sent = await m.reply_text(render(proposal) + footer, reply_markup=markup)
+        if proposal.events:
+            agent.link_message(chat, str(sent.message_id), proposal.id)
 
     async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         q = update.callback_query

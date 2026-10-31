@@ -13,6 +13,7 @@ class Store:
         self._db.executescript(
             """
             CREATE TABLE IF NOT EXISTS proposals (id TEXT PRIMARY KEY, user_id TEXT, body TEXT, created REAL DEFAULT (strftime('%s','now')));
+            CREATE TABLE IF NOT EXISTS messages (chat_id TEXT, message_id TEXT, proposal_id TEXT, PRIMARY KEY (chat_id, message_id));
             CREATE TABLE IF NOT EXISTS created (proposal_id TEXT, event_id TEXT);
             """
         )
@@ -43,3 +44,11 @@ class Store:
             ids = [r[0] for r in self._db.execute("SELECT event_id FROM created WHERE proposal_id=?", (proposal_id,))]
             self._db.execute("DELETE FROM created WHERE proposal_id=?", (proposal_id,))
         return ids
+
+    def link_message(self, chat_id: str, message_id: str, proposal_id: str) -> None:
+        with self._db:
+            self._db.execute("INSERT OR REPLACE INTO messages VALUES (?,?,?)", (chat_id, message_id, proposal_id))
+
+    def proposal_for_message(self, chat_id: str, message_id: str) -> str | None:
+        row = self._db.execute("SELECT proposal_id FROM messages WHERE chat_id=? AND message_id=?", (chat_id, message_id)).fetchone()
+        return row[0] if row else None

@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, ValidationError
 
-from .models import Inbound, ProposedEvent
+from .models import Inbound, Proposal, ProposedEvent
 
 
 class Extraction(BaseModel):
@@ -19,6 +19,8 @@ class Extraction(BaseModel):
 
 class Extractor(Protocol):
     def extract(self, inbound: Inbound) -> Extraction: ...
+
+    def revise(self, current: Proposal, instruction: str, now: datetime) -> Extraction: ...
 
 
 # The model returns *local wall-clock* strings with no offset; we attach the zone ourselves.
@@ -85,6 +87,27 @@ class RouterExtractor:
                 {"role": "user", "content": f"That was invalid ({first}). Reply again with valid JSON only."},
             ]
             return parse_extraction(self._call(retry), self._tz)
+
+    def revise(self, current: Proposal, instruction: str, now: datetime) -> Extraction:
+        """Apply a user's edit ("make it 8pm", "drop the second one") to a proposal."""
+        listing = json.dumps(
+            [{"title": e.title, "start": e.start.strftime("%Y-%m-%dT%H:%M"),
+              "end": e.end.strftime("%Y-%m-%dT%H:%M") if e.end else None, "all_day": e.all_day,
+              "location": e.location, "notes": e.notes, "confidence": "high", "rationale": None}
+             for e in current.events], indent=1)
+        n = now.astimezone(self._tz)
+        system = _SYSTEM.format(now=n.strftime("%Y-%m-%d %H:%M"), weekday=n.strftime("%A"), tz=self._tz.key)
+        system += "\n\nYou are EDITING an existing proposal. Return the full updated events list: change only what " \
+                  "the instruction asks, keep everything else identical, remove events if told to, add if told to."
+        user = f"Current events:\n{listing}\n\nInstruction: {instruction}"
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        raw = self._call(messages)
+        try:
+            return parse_extraction(raw, self._tz)
+        except (ValueError, ValidationError) as first:
+            messages += [{"role": "assistant", "content": raw},
+                         {"role": "user", "content": f"That was invalid ({first}). Reply again with valid JSON only."}]
+            return parse_extraction(self._call(messages), self._tz)
 
     def _call(self, messages: list[dict]) -> str:
         resp = self._client.chat.completions.create(

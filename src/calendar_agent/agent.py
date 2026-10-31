@@ -26,8 +26,7 @@ class Agent:
     def __init__(self, extractor: Extractor, calendar: Calendar, store: Store, default_duration_min: int = 60):
         self._x, self._cal, self._store, self._dur = extractor, calendar, store, default_duration_min
 
-    def propose(self, inbound: Inbound) -> Proposal:
-        ext = self._x.extract(inbound)
+    def _build(self, proposal_id: str, user_id: str, ext) -> Proposal:
         events = sorted(ext.events, key=lambda e: e.start)
         conflicts: dict[int, list[ExistingEvent]] = {}
         if events:
@@ -37,10 +36,33 @@ class Agent:
                 hits = [x for x in existing if overlaps(e.start, end, x)]
                 if hits:
                     conflicts[i] = hits
-        p = Proposal(id=uuid.uuid4().hex[:12], user_id=inbound.user_id, events=events, conflicts=conflicts, questions=ext.questions)
+        p = Proposal(id=proposal_id, user_id=user_id, events=events, conflicts=conflicts, questions=ext.questions)
         if events:
             self._store.save(p)
         return p
+
+    def propose(self, inbound: Inbound) -> Proposal:
+        return self._build(uuid.uuid4().hex[:12], inbound.user_id, self._x.extract(inbound))
+
+    def revise(self, proposal_id: str, user_id: str, instruction: str, now: datetime) -> Proposal | None:
+        """Edit a still-pending proposal. Returns the new proposal, or None if gone/not yours.
+
+        The old proposal is claimed (removed) only after the revision succeeded, so a failed
+        LLM call leaves the original confirmable.
+        """
+        old = self._store.get(proposal_id)
+        if old is None or old.user_id != user_id:
+            return None
+        ext = self._x.revise(old, instruction, now)
+        if self._store.take(proposal_id) is None:  # confirmed/cancelled while we were thinking
+            return None
+        return self._build(uuid.uuid4().hex[:12], user_id, ext)
+
+    def link_message(self, chat_id: str, message_id: str, proposal_id: str) -> None:
+        self._store.link_message(chat_id, message_id, proposal_id)
+
+    def proposal_for_message(self, chat_id: str, message_id: str) -> str | None:
+        return self._store.proposal_for_message(chat_id, message_id)
 
     def confirm(self, proposal_id: str, user_id: str) -> list[str] | None:
         """Create the events. Returns created ids, or None if the proposal is gone/not yours."""

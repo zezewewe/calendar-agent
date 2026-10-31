@@ -41,4 +41,5 @@ Forwarding WhatsApp: in WhatsApp, long-press a message (or share a screenshot) â
 - Times are resolved in `TIMEZONE`; the model returns local wall-clock time and the code attaches the zone.
 - Events with no end get `default_duration_min` (60); all-day events span the day.
 - Low-confidence guesses are marked "(unsure)" and listed under "Check:" so you can cancel and resend with more detail.
-- Not built yet: editing a proposal in chat, recurring events, multiple calendars, reminders.
+- Reply to a proposal message to edit it ("make it 8pm", "drop the second one"); the proposal is re-checked for conflicts.
+- Not built yet: recurring events, multiple calendars, reminders.

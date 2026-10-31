@@ -132,3 +132,37 @@ def test_no_events_means_nothing_stored():
     p = a.propose(inbound("hello"))
     assert p.events == [] and p.questions
     assert a.confirm(p.id, "u1") is None
+
+
+def test_revise_replaces_proposal_and_rechecks_conflicts():
+    clash = ExistingEvent(id="x", title="Gym", start=datetime(2026, 11, 5, 19, 0, tzinfo=TZ), end=datetime(2026, 11, 5, 20, 0, tzinfo=TZ))
+    c = FakeClient(raw(ev()), raw(ev(start="2026-11-05T21:00")))
+    a = make_agent(c, FakeCal([clash]))
+    p = a.propose(inbound())
+    assert 0 in p.conflicts
+    p2 = a.revise(p.id, "u1", "make it 9pm", NOW)
+    assert p2.id != p.id and p2.events[0].start.hour == 21 and p2.conflicts == {}
+    assert a.confirm(p.id, "u1") is None  # old one is gone
+    assert "Instruction: make it 9pm" in c.calls[1]["messages"][1]["content"]
+    assert a.confirm(p2.id, "u1")
+
+
+def test_failed_revise_keeps_original_confirmable():
+    a = make_agent(FakeClient(raw(ev()), "garbage", "still garbage"), FakeCal())
+    p = a.propose(inbound())
+    with pytest.raises(ValueError):
+        a.revise(p.id, "u1", "later", NOW)
+    assert a.confirm(p.id, "u1")
+
+
+def test_revise_wrong_user_or_missing():
+    a = make_agent(FakeClient(raw(ev())), FakeCal())
+    p = a.propose(inbound())
+    assert a.revise(p.id, "other", "x", NOW) is None
+    assert a.revise("nope", "u1", "x", NOW) is None
+
+
+def test_message_link_roundtrip():
+    a = make_agent(FakeClient(), FakeCal())
+    a.link_message("c", "7", "pid")
+    assert a.proposal_for_message("c", "7") == "pid" and a.proposal_for_message("c", "8") is None
