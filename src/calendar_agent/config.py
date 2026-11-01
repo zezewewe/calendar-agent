@@ -18,6 +18,15 @@ class Config:
     telegram_bot_token: str = ""
     telegram_allowed_users: frozenset[str] = field(default_factory=frozenset)
     state_db: str = "state.db"
+    # per-user calendars (HTTP/ZeLabs channel): one agent account, one calendar per user
+    calendar_registry_db: str = "calendars.db"
+    share_role: str = "writer"
+    # HTTP channel + ZeLabs gateway identity
+    http_host: str = "127.0.0.1"
+    http_port: int = 8099
+    zelabs_route_id: str = "calendar"
+    zelabs_identity_key: str = ""
+    zelabs_key_file: str = ""
 
     @property
     def tz(self) -> ZoneInfo:
@@ -38,4 +47,11 @@ class Config:
             telegram_bot_token=e("TELEGRAM_BOT_TOKEN", ""),
             telegram_allowed_users=users,
             state_db=e("STATE_DB", cls.state_db),
+            calendar_registry_db=e("CALENDAR_REGISTRY_DB", cls.calendar_registry_db),
+            share_role=e("SHARE_ROLE", cls.share_role),
+            http_host=e("HTTP_HOST", cls.http_host),
+            http_port=int(e("HTTP_PORT", str(cls.http_port))),
+            zelabs_route_id=e("ZELABS_ROUTE_ID", cls.zelabs_route_id),
+            zelabs_identity_key=e("ZELABS_IDENTITY_KEY", ""),
+            zelabs_key_file=e("ZELABS_KEY_FILE", ""),
         )
