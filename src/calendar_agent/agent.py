@@ -78,15 +78,16 @@ class Agent:
                 ids.append(self._cal.create_event(e, resolve_end(e, self._dur)))
         finally:
             if ids:
-                self._store.record_created(p.id, ids)
+                self._store.record_created(p.id, user_id, ids)
         return ids
 
     def cancel(self, proposal_id: str, user_id: str) -> bool:
         p = self._store.get(proposal_id)
         return bool(p and p.user_id == user_id and self._store.take(proposal_id))
 
-    def undo(self, proposal_id: str) -> int:
-        ids = self._store.pop_created(proposal_id)
+    def undo(self, proposal_id: str, user_id: str | None = None) -> int:
+        """Remove the events this proposal created. Pass `user_id` to scope it to one user."""
+        ids = self._store.pop_created(proposal_id, user_id)
         for i in ids:
             self._cal.delete_event(i)
         return len(ids)

@@ -19,11 +19,39 @@ Telegram ─► Inbound ─► RouterExtractor (model-router, vision) ─► Pro
 | `extract.py` | LLM extraction via the OpenAI-compatible model-router; local-time parsing, one JSON repair retry |
 | `agent.py` | propose / confirm / cancel / undo; channel-agnostic |
 | `calendars/google.py` | Google Calendar adapter (`Calendar` protocol in `calendars/__init__.py`) |
+| `calendars/registry.py` | email → calendar id, for the per-user HTTP channel |
+| `calendars/peruser.py` | one agent account, one secondary calendar per user, shared to their Gmail |
 | `channels/telegram.py` | Telegram front end; allow-listed users only |
+| `channels/http.py` | HTTP front end for the ZeLabs gateway; per-user, verified by `X-Zelabs-Identity` |
+| `identity.py` | verifies the gateway's `X-Auth-Email` / `X-Zelabs-Identity` (HMAC) |
+| `pool.py` | builds an `Agent` bound to the caller's own calendar |
 | `store.py` | SQLite: pending proposals + created event ids for undo |
 
 New channel (e.g. WhatsApp Cloud API) = build an `Inbound`, call `agent.propose`, call `agent.confirm`.
 New calendar backend = implement the 3-method `Calendar` protocol.
+
+## Per-user calendars (ZeLabs / HTTP channel)
+
+`calendar-agent serve` runs an HTTP front end behind the [ZeLabs gateway](../local-harness/docs/zelabs.md)
+that gives every user their own calendar without a per-user consent screen: the
+single Google account above owns one secondary calendar per user and shares it
+(ACL role `SHARE_ROLE`, default `writer`) with that user's Gmail, so events show
+up inside *their* Google Calendar. `calendars/registry.py` remembers the mapping.
+
+The caller is identified by the email Cloudflare Access puts in `X-Auth-Email`,
+trusted only when the per-route `X-Zelabs-Identity` HMAC checks out against the
+gateway's master key (`~/.ows/zelabs.identity.key`). Each request is served by an
+`Agent` bound to that user's calendar, sharing the one `Store` and extractor.
+
+```bash
+calendar-agent auth          # once: the shared agent Google account
+calendar-agent serve         # http://127.0.0.1:8099, route id "calendar"
+calendar-agent serve --insecure   # local testing only: trust X-Auth-Email as-is
+```
+
+Endpoints: `GET /api/health`, `POST /api/{propose,revise,confirm,cancel,undo}`.
+Then register the route in `zelabs/{routes.json,apps.json,policy.json}` and add a
+Calendar tab. Undo is scoped to the requesting user.
 
 ## Setup
 1. `pip install -e '.[google,telegram]'`

@@ -14,9 +14,13 @@ class Store:
             """
             CREATE TABLE IF NOT EXISTS proposals (id TEXT PRIMARY KEY, user_id TEXT, body TEXT, created REAL DEFAULT (strftime('%s','now')));
             CREATE TABLE IF NOT EXISTS messages (chat_id TEXT, message_id TEXT, proposal_id TEXT, PRIMARY KEY (chat_id, message_id));
-            CREATE TABLE IF NOT EXISTS created (proposal_id TEXT, event_id TEXT);
+            CREATE TABLE IF NOT EXISTS created (proposal_id TEXT, user_id TEXT, event_id TEXT);
             """
         )
+        try:  # migrate a pre-users `created` table in an existing db
+            self._db.execute("ALTER TABLE created ADD COLUMN user_id TEXT")
+        except sqlite3.OperationalError:
+            pass
 
     def save(self, p: Proposal) -> None:
         with self._db:
@@ -35,14 +39,19 @@ class Store:
             self._db.execute("DELETE FROM proposals WHERE id=?", (proposal_id,))
         return Proposal.model_validate(json.loads(row[0]))
 
-    def record_created(self, proposal_id: str, event_ids: list[str]) -> None:
+    def record_created(self, proposal_id: str, user_id: str, event_ids: list[str]) -> None:
         with self._db:
-            self._db.executemany("INSERT INTO created VALUES (?,?)", [(proposal_id, e) for e in event_ids])
+            self._db.executemany("INSERT INTO created VALUES (?,?,?)", [(proposal_id, user_id, e) for e in event_ids])
 
-    def pop_created(self, proposal_id: str) -> list[str]:
+    def pop_created(self, proposal_id: str, user_id: str | None = None) -> list[str]:
+        """Remove and return the created event ids. With `user_id`, only that user's rows."""
         with self._db:
-            ids = [r[0] for r in self._db.execute("SELECT event_id FROM created WHERE proposal_id=?", (proposal_id,))]
-            self._db.execute("DELETE FROM created WHERE proposal_id=?", (proposal_id,))
+            if user_id is None:
+                where, args = "proposal_id=?", (proposal_id,)
+            else:
+                where, args = "proposal_id=? AND user_id=?", (proposal_id, user_id)
+            ids = [r[0] for r in self._db.execute(f"SELECT event_id FROM created WHERE {where}", args)]
+            self._db.execute(f"DELETE FROM created WHERE {where}", args)
         return ids
 
     def link_message(self, chat_id: str, message_id: str, proposal_id: str) -> None:
