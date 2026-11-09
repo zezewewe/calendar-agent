@@ -11,6 +11,9 @@ class Config:
     router_url: str = "http://localhost:4000"
     router_api_key: str = ""
     extract_model: str = "vision-free"
+    # Model for edits to an existing proposal ("make it 8pm"); a reasoning model.
+    # Falls back to extract_model when unset.
+    reason_model: str = ""
     timezone: str = "Asia/Singapore"
     default_duration_min: int = 60
     calendar_backend: str = "google"
@@ -51,6 +54,7 @@ class Config:
             router_url=e("ROUTER_URL", cls.router_url),
             router_api_key=e("ROUTER_API_KEY", ""),
             extract_model=e("EXTRACT_MODEL", cls.extract_model),
+            reason_model=e("REASON_MODEL", cls.reason_model),
             timezone=e("TIMEZONE", cls.timezone),
             calendar_backend=e("CALENDAR_BACKEND", cls.calendar_backend).lower(),
             webcalendar_mcp_url=e("WEBCALENDAR_MCP_URL", cls.webcalendar_mcp_url),

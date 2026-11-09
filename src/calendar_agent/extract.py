@@ -67,14 +67,30 @@ Rules:
 
 
 class RouterExtractor:
-    """OpenAI-compatible client pointed at model-router (or any OpenAI-style endpoint)."""
+    """OpenAI-compatible client pointed at model-router (or any OpenAI-style endpoint).
 
-    def __init__(self, base_url: str, api_key: str, model: str, tz: ZoneInfo, client=None):
+    `model` does extraction (and must accept images). `reason_model`, when given,
+    handles edits to an existing proposal — a reasoning model reads the current
+    events and rewrites the list, which benefits from a stronger reasoner and does
+    not need vision. Both fall back to `model`.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        tz: ZoneInfo,
+        reason_model: str | None = None,
+        client=None,
+        timeout: float = 180.0,
+    ):
         if client is None:
             from openai import OpenAI
 
-            client = OpenAI(base_url=base_url, api_key=api_key)
+            client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
         self._client, self._model, self._tz = client, model, tz
+        self._reason_model = reason_model or model
 
     def extract(self, inbound: Inbound) -> Extraction:
         raw = self._call(self._messages(inbound))
@@ -101,19 +117,31 @@ class RouterExtractor:
                   "the instruction asks, keep everything else identical, remove events if told to, add if told to."
         user = f"Current events:\n{listing}\n\nInstruction: {instruction}"
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-        raw = self._call(messages)
+        raw = self._edit_call(messages)
         try:
             return parse_extraction(raw, self._tz)
         except (ValueError, ValidationError) as first:
             messages += [{"role": "assistant", "content": raw},
                          {"role": "user", "content": f"That was invalid ({first}). Reply again with valid JSON only."}]
-            return parse_extraction(self._call(messages), self._tz)
+            return parse_extraction(self._edit_call(messages), self._tz)
 
-    def _call(self, messages: list[dict]) -> str:
+    def _edit_call(self, messages: list[dict]) -> str:
+        """Run the edit/revise turn on the reason model, falling back to the extract model.
+
+        Reasoning models can spend the whole token budget on their thinking and
+        return empty content; the extract model is the safety net for that.
+        """
+        raw = self._call(messages, model=self._reason_model, max_tokens=4096)
+        if raw.strip():
+            return raw
+        return self._call(messages, model=self._model, max_tokens=2048)
+
+    def _call(self, messages: list[dict], model: str | None = None, max_tokens: int = 2048) -> str:
         resp = self._client.chat.completions.create(
-            model=self._model,
+            model=model or self._model,
             messages=messages,
             temperature=0,
+            max_tokens=max_tokens,
             response_format={"type": "json_schema", "json_schema": {"name": "events", "schema": _SCHEMA, "strict": True}},
         )
         return resp.choices[0].message.content or ""
