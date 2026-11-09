@@ -1,0 +1,48 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly rescan so new advisories against the pinned base show up.
+    - cron: "0 18 * * 0"
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  webcalendar-image:
+    name: WebCalendar image scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build hardened WebCalendar image
+        run: docker build -f Dockerfile.webcalendar -t calendar-agent-webcalendar:ci .
+      # Report-only for now: the pinned upstream base still carries unfixed
+      # HIGH findings. Tighten to exit-code "1" once the base is clean.
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: calendar-agent-webcalendar:ci
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python dependency audit
+        run: |
+          python -m pip install --quiet --upgrade pip pip-audit
+          python -m pip install --quiet -e .
+          pip-audit

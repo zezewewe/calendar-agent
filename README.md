@@ -48,9 +48,15 @@ participant/category argument. This is deliberate for the first shared, no-priva
 
 ### Dedicated localhost Docker service
 
-`compose.webcalendar.yml` runs pinned WebCalendar v1.9.27 with a persistent SQLite volume. It binds only to
-`127.0.0.1:8002`, uses the non-admin `family` account for the shared calendar/MCP token, and restarts with Docker.
-The admin and family UI passwords are generated during local provisioning and stored in the git-ignored `.env`.
+`compose.webcalendar.yml` builds the hardened WebCalendar derivative from `Dockerfile.webcalendar` (pinned
+v1.9.27 base) with a persistent SQLite volume. It binds only to `127.0.0.1:8002`, uses the non-admin `family`
+account for the shared calendar/MCP token, and restarts with Docker. The admin and family UI passwords are
+generated during local provisioning and stored in the git-ignored `.env`.
+
+The image hardening applies the findings from the security audit: Debian security updates at build time, the
+installer/tools/docs and `security_audit.php` denied over HTTP, the HTML/TinyMCE description editor disabled and
+its assets removed, a read-only root filesystem, all Linux capabilities dropped except the ones Apache needs,
+and `no-new-privileges`.
 
 ```bash
 # Start or update from the intended image.
@@ -66,6 +72,14 @@ docker compose -f compose.webcalendar.yml up -d
 `down` preserves the `calendar-agent-webcalendar_webcalendar-data` volume. Do not use `down -v` unless you intend
 to erase the calendar. The WebCalendar UI is at <http://localhost:8002/>; use `WEBCALENDAR_AGENT_LOGIN` and
 `WEBCALENDAR_AGENT_PASSWORD` from `.env` for the family calendar, or the corresponding admin credentials to manage it.
+
+Upgrading an existing installation to the hardened image also needs the editor setting flipped in its database
+(the new default only seeds fresh installs):
+
+```bash
+docker compose -f compose.webcalendar.yml exec -u www-data webcalendar \
+  php bin/webcal.php config set ALLOW_HTML_DESCRIPTION N
+```
 
 Enable WebCalendar's MCP server and MCP write access, then generate an API token for the agent user under
 Preferences. Set `WEBCALENDAR_MCP_URL` to its `mcp.php` URL and `WEBCALENDAR_MCP_TOKEN` to that token. The WebCalendar

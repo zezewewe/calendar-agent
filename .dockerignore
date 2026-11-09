@@ -1,0 +1,10 @@
+.env
+.venv/
+.git/
+__pycache__/
+*.pyc
+state.db
+calendars.db
+token.json
+client_secret.json
+.pytest_cache/
