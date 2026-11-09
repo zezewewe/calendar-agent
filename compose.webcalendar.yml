@@ -2,10 +2,31 @@ name: calendar-agent-webcalendar
 
 services:
   webcalendar:
-    # WebCalendar v1.9.27, verified with calendar-agent's MCP integration tests.
-    image: craigk5n/webcalendar@sha256:226830c3644517c125f914eb3261e9394ad98de2a84e5a76df5f16b46ac6c64f
+    # Hardened derivative of WebCalendar v1.9.27 (see Dockerfile.webcalendar).
+    build:
+      context: .
+      dockerfile: Dockerfile.webcalendar
+    image: calendar-agent-webcalendar:hardened
     container_name: calendar-agent-webcalendar
     restart: unless-stopped
+    # Apache's master process needs to bind :80 and setuid to www-data; every
+    # other capability is dropped and privilege escalation is blocked.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /var/run/apache2:size=8m,mode=1777
+      - /var/lock/apache2:size=8m,mode=1777
     ports:
       - "127.0.0.1:${WEBCALENDAR_PORT:-8002}:80"
     environment:

@@ -1,0 +1,29 @@
+# Hardened local derivative of WebCalendar v1.9.27.
+#
+# The upstream image is digest-pinned (see compose.webcalendar.yml). This file
+# applies the hardening the security audit called for without forking the app:
+#   - take Debian security updates available since the upstream build
+#   - disable the HTML/TinyMCE description editor and remove its assets
+#   - deny the installer, CLI tools and docs over HTTP while keeping the
+#     headless CLI available for provisioning
+FROM craigk5n/webcalendar@sha256:226830c3644517c125f914eb3261e9394ad98de2a84e5a76df5f16b46ac6c64f
+
+USER root
+
+# Base-image CVEs with fixes available (for example libbrotli). The image
+# cannot be re-run through apt by the app itself; do it here at build time.
+RUN apt-get update \
+ && apt-get upgrade -y \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY webcalendar-hardening.conf /etc/apache2/conf-available/webcalendar-hardening.conf
+RUN a2enconf webcalendar-hardening
+
+# The HTML editor is the only consumer of TinyMCE. WebCalendar's own config
+# gates it on ALLOW_HTML_DESCRIPTION, so default that to N for new installs and
+# drop the bundled editor assets. An existing database is switched over during
+# deployment too.
+RUN sed -i "s/'ALLOW_HTML_DESCRIPTION' => 'Y'/'ALLOW_HTML_DESCRIPTION' => 'N'/" \
+      /var/www/html/includes/default_config.php \
+ && rm -rf /var/www/html/pub/tinymce
