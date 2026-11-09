@@ -56,7 +56,7 @@ class GoogleCalendar:
             return datetime.fromisoformat(d["dateTime"]).astimezone(self._tz)
         return datetime.fromisoformat(d["date"]).replace(tzinfo=self._tz)  # all-day
 
-    def create_event(self, event: ProposedEvent, end: datetime) -> str:
+    def create_event(self, event: ProposedEvent, end: datetime, user_id: str | None = None) -> str:
         body: dict = {"summary": event.title}
         if event.all_day:
             body["start"] = {"date": event.start.date().isoformat()}

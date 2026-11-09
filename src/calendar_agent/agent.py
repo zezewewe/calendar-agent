@@ -75,7 +75,7 @@ class Agent:
         ids: list[str] = []
         try:
             for e in p.events:
-                ids.append(self._cal.create_event(e, resolve_end(e, self._dur)))
+                ids.append(self._cal.create_event(e, resolve_end(e, self._dur), user_id=user_id))
         finally:
             if ids:
                 self._store.record_created(p.id, user_id, ids)

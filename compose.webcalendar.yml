@@ -1,0 +1,35 @@
+name: calendar-agent-webcalendar
+
+services:
+  webcalendar:
+    # WebCalendar v1.9.27, verified with calendar-agent's MCP integration tests.
+    image: craigk5n/webcalendar@sha256:226830c3644517c125f914eb3261e9394ad98de2a84e5a76df5f16b46ac6c64f
+    container_name: calendar-agent-webcalendar
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEBCALENDAR_PORT:-8002}:80"
+    environment:
+      WEBCALENDAR_USE_ENV: "true"
+      # Local install-wizard password: Webcalendar.1. Used only during setup.
+      WEBCALENDAR_INSTALL_PASSWORD: ${WEBCALENDAR_INSTALL_PASSWORD_HASH:-b97f7de5f4b20eb6e474bb18b040b369}
+      WEBCALENDAR_DB_TYPE: sqlite3
+      WEBCALENDAR_DB_DATABASE: /var/www/data/webcalendar.db
+      WEBCALENDAR_DB_LOGIN: webcalendar
+      WEBCALENDAR_DB_PASSWORD: ${WEBCALENDAR_DB_PASSWORD:-local-sqlite-only}
+      WEBCALENDAR_DB_PERSISTENT: "true"
+      WEBCALENDAR_USER_INC: user.php
+      WEBCALENDAR_MODE: prod
+      TZ: ${TIMEZONE:-Asia/Singapore}
+    volumes:
+      - webcalendar-data:/var/www/data
+    command: >
+      sh -c "chown www-data:www-data /var/www/data && exec apache2-foreground"
+    healthcheck:
+      test: ["CMD", "php", "-r", "$$s = @fsockopen('127.0.0.1', 80); if (!$$s) { exit(1); } fclose($$s);"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+volumes:
+  webcalendar-data:

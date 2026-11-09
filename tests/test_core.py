@@ -40,7 +40,7 @@ class FakeCal:
     def list_events(self, s, e):
         return self.existing
 
-    def create_event(self, event, end):
+    def create_event(self, event, end, user_id=None):
         self.created.append((event, end))
         return f"id{len(self.created)}"
 
