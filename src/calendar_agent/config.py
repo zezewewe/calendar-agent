@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from zoneinfo import ZoneInfo
@@ -12,6 +13,10 @@ class Config:
     extract_model: str = "vision-free"
     timezone: str = "Asia/Singapore"
     default_duration_min: int = 60
+    calendar_backend: str = "google"
+    webcalendar_mcp_url: str = "http://localhost:8080/mcp.php"
+    webcalendar_mcp_token: str = ""
+    family_members: dict[str, str] = field(default_factory=dict)
     google_client_secret_file: str = "client_secret.json"
     google_token_file: str = "token.json"
     google_calendar_id: str = "primary"
@@ -36,11 +41,21 @@ class Config:
     def from_env(cls) -> "Config":
         e = os.environ.get
         users = frozenset(u.strip() for u in e("TELEGRAM_ALLOWED_USERS", "").split(",") if u.strip())
+        try:
+            members = json.loads(e("FAMILY_MEMBERS", "{}"))
+        except json.JSONDecodeError as exc:
+            raise ValueError("FAMILY_MEMBERS must be a JSON object mapping caller ids to display names") from exc
+        if not isinstance(members, dict) or not all(isinstance(v, str) for v in members.values()):
+            raise ValueError("FAMILY_MEMBERS must be a JSON object mapping caller ids to display names")
         return cls(
             router_url=e("ROUTER_URL", cls.router_url),
             router_api_key=e("ROUTER_API_KEY", ""),
             extract_model=e("EXTRACT_MODEL", cls.extract_model),
             timezone=e("TIMEZONE", cls.timezone),
+            calendar_backend=e("CALENDAR_BACKEND", cls.calendar_backend).lower(),
+            webcalendar_mcp_url=e("WEBCALENDAR_MCP_URL", cls.webcalendar_mcp_url),
+            webcalendar_mcp_token=e("WEBCALENDAR_MCP_TOKEN", ""),
+            family_members=members,
             google_client_secret_file=e("GOOGLE_CLIENT_SECRET_FILE", cls.google_client_secret_file),
             google_token_file=e("GOOGLE_TOKEN_FILE", cls.google_token_file),
             google_calendar_id=e("GOOGLE_CALENDAR_ID", cls.google_calendar_id),

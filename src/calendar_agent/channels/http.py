@@ -4,7 +4,7 @@ behind the ZeLabs gateway.
 The caller is identified by the Cloudflare Access email the gateway forwards
 (`X-Auth-Email`), trusted only when the per-route `X-Zelabs-Identity` HMAC
 checks out (see `identity.py`). The email picks the user's calendar via
-`AgentPool`, so each user only ever proposes/confirms against their own events.
+`AgentPool` for per-user backends, or tags a shared-calendar event with its caller.
 
 Endpoints:
   GET  /              the tab page (served through the gateway at /apps/calendar/)
