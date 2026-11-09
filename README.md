@@ -17,7 +17,7 @@ Telegram ─► Inbound ─► RouterExtractor (model-router, vision) ─► Pro
 | file | role |
 |---|---|
 | `models.py` | data types (Inbound, ProposedEvent, Proposal) |
-| `extract.py` | LLM extraction via the OpenAI-compatible model-router; local-time parsing, one JSON repair retry |
+| `extract.py` | LLM extraction via the OpenAI-compatible model-router; local-time parsing, one JSON repair retry. `EXTRACT_MODEL` does extraction (must accept images); `REASON_MODEL` (optional, defaults to `EXTRACT_MODEL`) handles edits to a pending proposal |
 | `agent.py` | propose / confirm / cancel / undo; channel-agnostic |
 | `calendars/webcalendar.py` | Shared family calendar through WebCalendar's built-in MCP server |
 | `calendars/google.py` | Optional Google Calendar adapter (`Calendar` protocol in `calendars/__init__.py`) |

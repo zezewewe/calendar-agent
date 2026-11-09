@@ -17,7 +17,9 @@ from .store import Store
 
 
 def _extractor(cfg: Config) -> RouterExtractor:
-    return RouterExtractor(cfg.router_url, cfg.router_api_key, cfg.extract_model, cfg.tz)
+    return RouterExtractor(
+        cfg.router_url, cfg.router_api_key, cfg.extract_model, cfg.tz, cfg.reason_model or None
+    )
 
 
 def _calendar(cfg: Config):
