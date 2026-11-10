@@ -135,6 +135,20 @@ calendar-agent serve    # HTTP channel behind the ZeLabs gateway (127.0.0.1:8099
 calendar-agent mcp      # MCP server on stdio (Claude / the ows hub)
 ```
 
+### Telegram bot
+
+The bot uses long polling, so there is no webhook or public URL to configure.
+
+1. In Telegram, open **@BotFather** → `/newbot` → pick a name and a username ending in `bot`.
+   Copy the token (`123456:ABC…`) into `TELEGRAM_BOT_TOKEN`.
+2. Get your numeric user id: message **@userinfobot**, or, after sending the bot one message, run
+   `curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates" | jq '.result[0].message.from.id'`.
+   Put it (comma-separated for several people) in `TELEGRAM_ALLOWED_USERS` — the bot refuses everyone else.
+3. Start it with `calendar-agent`. Optionally set `CALENDAR_WEB_URL` so the bot's menu button opens the
+   web calendar as a Mini App inside the chat.
+
+To stop the bot: send it `/stop`.
+
 ## Tests
 `pip install -e '.[dev]' && pytest` — uses fakes for the LLM and calendar, no network.
 
