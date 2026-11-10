@@ -2,17 +2,23 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..agent import Agent
 from ..config import Config
 from ..models import Attachment, Inbound
-from ..render import render
+from ..render import render, render_agenda
 
 
 def run(cfg: Config, agent: Agent) -> None:
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-    from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+    from telegram import (
+        InlineKeyboardButton,
+        InlineKeyboardMarkup,
+        MenuButtonWebApp,
+        Update,
+        WebAppInfo,
+    )
+    from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
     allowed = cfg.telegram_allowed_users
     if not allowed:
@@ -50,12 +56,13 @@ def run(cfg: Config, agent: Agent) -> None:
             return
         markup = None
         if proposal.events:
+            label = "Apply changes" if any(e.action != "create" for e in proposal.events) else "Add to calendar"
             markup = InlineKeyboardMarkup([[
-                InlineKeyboardButton("Add to calendar", callback_data=f"ok:{proposal.id}"),
+                InlineKeyboardButton(label, callback_data=f"ok:{proposal.id}"),
                 InlineKeyboardButton("Cancel", callback_data=f"no:{proposal.id}"),
             ]])
         footer = "\n\n(Reply to this message to change it.)" if proposal.events else ""
-        sent = await m.reply_text(render(proposal) + footer, reply_markup=markup)
+        sent = await m.reply_text(render(proposal, cfg.family_members) + footer, reply_markup=markup)
         if proposal.events:
             agent.link_message(chat, str(sent.message_id), proposal.id)
 
@@ -70,21 +77,45 @@ def run(cfg: Config, agent: Agent) -> None:
             try:
                 ids = await asyncio.to_thread(agent.confirm, pid, uid)
             except Exception as e:  # noqa: BLE001
-                await q.edit_message_text(f"{q.message.text}\n\nFailed to add: {e}")
+                await q.edit_message_text(f"{q.message.text}\n\nFailed to apply: {e}")
                 return
             if ids is None:
                 await q.edit_message_text(f"{q.message.text}\n\n(Already handled or expired.)")
                 return
             undo = InlineKeyboardMarkup([[InlineKeyboardButton("Undo", callback_data=f"undo:{pid}")]])
-            await q.edit_message_text(f"{q.message.text}\n\nAdded {len(ids)} event(s).", reply_markup=undo)
+            await q.edit_message_text(f"{q.message.text}\n\nApplied {len(ids)} change(s).", reply_markup=undo)
         elif action == "no":
             done = await asyncio.to_thread(agent.cancel, pid, uid)
             await q.edit_message_text(f"{q.message.text}\n\n{'Cancelled.' if done else '(Already handled.)'}")
         elif action == "undo":
             n = await asyncio.to_thread(agent.undo, pid)
-            await q.edit_message_text(f"Removed {n} event(s).")
+            await q.edit_message_text(f"Reverted {n} change(s).")
 
-    app = Application.builder().token(cfg.telegram_bot_token).build()
+    def agenda_handler(days: int):
+        async def handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+            if str(update.effective_user.id) not in allowed:
+                return
+            now = datetime.now(cfg.tz)
+            events = await asyncio.to_thread(agent.agenda, now, now + timedelta(days=days))
+            await update.effective_message.reply_text(render_agenda(events, cfg.family_members))
+        return handler
+
+    async def on_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        await update.effective_message.reply_text(
+            "Forward a note, poster or chat to add events. Ask a question to see the calendar, "
+            "or use /agenda (next 7 days) and /list (next 30 days)."
+        )
+
+    async def post_init(app: Application) -> None:
+        if cfg.calendar_web_url:  # open the web UI as a Mini App from the chat menu
+            await app.bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(text="Calendar", web_app=WebAppInfo(url=cfg.calendar_web_url))
+            )
+
+    app = Application.builder().token(cfg.telegram_bot_token).post_init(post_init).build()
+    app.add_handler(CommandHandler("start", on_start))
+    app.add_handler(CommandHandler("agenda", agenda_handler(7)))
+    app.add_handler(CommandHandler("list", agenda_handler(30)))
     app.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.PHOTO | filters.Document.IMAGE, on_message))
     app.add_handler(CallbackQueryHandler(on_button))
     app.run_polling()

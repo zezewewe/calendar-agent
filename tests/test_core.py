@@ -18,6 +18,15 @@ def raw(*events, questions=()):
     return json.dumps({"events": list(events), "questions": list(questions)})
 
 
+def rawx(intent="create", range=None, events=(), questions=()):
+    return json.dumps({"events": list(events), "questions": list(questions), "intent": intent, "range": range})
+
+
+def change(action, target_id, title="X", start="2026-11-07T08:00", **kw):
+    return {"action": action, "target_id": target_id, "title": title, "start": start, "end": None,
+            "all_day": False, "location": None, "notes": None, "confidence": "high", **kw}
+
+
 def ev(title="Dinner", start="2026-11-05T19:00", end=None, **kw):
     return {"title": title, "start": start, "end": end, "all_day": False, "location": None,
             "notes": None, "confidence": "high", "rationale": None, **kw}
@@ -160,6 +169,92 @@ def test_revise_wrong_user_or_missing():
     p = a.propose(inbound())
     assert a.revise(p.id, "other", "x", NOW) is None
     assert a.revise("nope", "u1", "x", NOW) is None
+
+
+def test_recurrence_expands_weekly_saturdays_in_november():
+    # Nov 1 2026 is a Sunday; the series must land on the four Saturdays, not Sunday.
+    x = parse_extraction(raw(ev(start="2026-11-01T10:00", recurrence={"weekdays": ["SA"], "until": "2026-11-30", "count": None})), TZ)
+    starts = [e.start for e in x.events]
+    assert [s.day for s in starts] == [7, 14, 21, 28]
+    assert all(s.weekday() == 5 and s.hour == 10 for s in starts)
+
+
+def test_recurrence_count_bounds_series_to_n_weekdays():
+    x = parse_extraction(raw(ev(start="2026-11-02T09:00", recurrence={"weekdays": ["MO", "WE"], "until": None, "count": 3})), TZ)
+    assert [e.start.day for e in x.events] == [2, 4, 9]
+    assert all(e.start.weekday() in (0, 2) for e in x.events)
+
+
+def test_recurrence_without_until_falls_back_to_end_of_month():
+    x = parse_extraction(raw(ev(start="2026-11-03T08:00", recurrence={"weekdays": ["SA"], "until": None, "count": None})), TZ)
+    assert [e.start.day for e in x.events] == [7, 14, 21, 28]
+
+
+def test_recurrence_preserves_duration_on_every_occurrence():
+    x = parse_extraction(raw(ev(start="2026-11-07T10:00", end="2026-11-07T11:30", recurrence={"weekdays": ["SA"], "until": "2026-11-30", "count": None})), TZ)
+    assert all(e.end - e.start == timedelta(minutes=90) for e in x.events)
+
+
+def test_recurrence_caps_runaway_series_and_flags_it():
+    x = parse_extraction(raw(ev(start="2026-01-01T09:00", recurrence={"weekdays": ["MO", "TU", "WE", "TH", "FR", "SA", "SU"], "until": None, "count": 5000})), TZ)
+    assert len(x.events) == 366
+    assert any("repeats a lot" in q for q in x.questions)
+
+
+def test_empty_recurrence_stays_a_single_event():
+    x = parse_extraction(raw(ev(start="2026-11-05T19:00", recurrence={"weekdays": [], "until": None, "count": None})), TZ)
+    assert len(x.events) == 1
+
+
+def test_update_intent_lists_then_applies_change_and_undo_restores():
+    existing = ExistingEvent(id="42", title="Gym", start=datetime(2026, 11, 7, 9, 0, tzinfo=TZ), end=datetime(2026, 11, 7, 10, 0, tzinfo=TZ))
+    cal = FakeCal([existing])
+    extract = rawx(intent="update", range={"start": "2026-11-01", "end": "2026-11-30"})
+    plan = json.dumps({"events": [change("update", "42", title="Gym", start="2026-11-07T08:00")], "questions": []})
+    a = make_agent(FakeClient(extract, plan), cal)
+
+    p = a.propose(inbound("move my Saturday gym to 8am"))
+    assert p.intent == "update" and len(p.events) == 1
+    assert p.events[0].action == "update" and p.events[0].target_id == "42"
+    assert cal.created == []  # nothing written before confirm
+
+    assert a.confirm(p.id, "u1") == ["id1"]
+    assert cal.deleted == ["42"] and len(cal.created) == 1
+    assert a.undo(p.id, "u1") == 2  # remove new, recreate old
+    assert cal.deleted == ["42", "id1"] and len(cal.created) == 2
+
+
+def test_delete_intent_removes_matched_event_and_undo_recreates_it():
+    e1 = ExistingEvent(id="7", title="Standup", start=datetime(2026, 11, 3, 9, 0, tzinfo=TZ), end=datetime(2026, 11, 3, 9, 30, tzinfo=TZ))
+    cal = FakeCal([e1])
+    plan = json.dumps({"events": [change("delete", "7", title="Standup", start="2026-11-03T09:00")], "questions": []})
+    a = make_agent(FakeClient(rawx(intent="delete", range={"start": "2026-11-01", "end": "2026-11-30"}), plan), cal)
+
+    p = a.propose(inbound("delete the standup"))
+    assert p.events[0].action == "delete" and p.events[0].target_id == "7"
+    assert a.confirm(p.id, "u1") == [] and cal.deleted == ["7"]
+    assert a.undo(p.id, "u1") == 1 and len(cal.created) == 1
+
+
+def test_query_lists_events_and_is_not_confirmable():
+    e1 = ExistingEvent(id="7", title="Standup", start=datetime(2026, 11, 3, 9, 0, tzinfo=TZ), end=datetime(2026, 11, 3, 9, 30, tzinfo=TZ))
+    a = make_agent(FakeClient(rawx(intent="query", range={"start": "2026-11-01", "end": "2026-11-30"})), FakeCal([e1]))
+    p = a.propose(inbound("what's on in November?"))
+    assert p.intent == "query" and p.listing and not p.events
+    assert a.confirm(p.id, "u1") is None
+
+
+def test_change_with_no_matching_events_asks_instead_of_writing():
+    a = make_agent(FakeClient(rawx(intent="delete", range={"start": "2026-11-01", "end": "2026-11-30"})), FakeCal())
+    p = a.propose(inbound("delete my November meetings"))
+    assert p.events == [] and p.questions
+
+
+def test_plan_ignores_hallucinated_target_id():
+    e1 = ExistingEvent(id="7", title="Standup", start=datetime(2026, 11, 3, 9, 0, tzinfo=TZ), end=datetime(2026, 11, 3, 9, 30, tzinfo=TZ))
+    plan = json.dumps({"events": [change("delete", "does-not-exist")], "questions": []})
+    a = make_agent(FakeClient(rawx(intent="delete", range={"start": "2026-11-01", "end": "2026-11-30"}), plan), FakeCal([e1]))
+    assert a.propose(inbound("delete it")).events == []
 
 
 def test_message_link_roundtrip():
