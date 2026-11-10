@@ -6,6 +6,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# What the user wants done with the existing calendar.
+Intent = Literal["create", "update", "delete", "query"]
+# What one proposed event does on confirm.
+Action = Literal["create", "update", "delete"]
+
 
 class Attachment(BaseModel):
     mime: str  # e.g. image/png
@@ -21,6 +26,18 @@ class Inbound(BaseModel):
     received_at: datetime  # timezone-aware; anchors relative dates
 
 
+class ExistingEvent(BaseModel):
+    """An event already on the calendar; what an update/delete targets."""
+
+    id: str
+    title: str
+    start: datetime
+    end: datetime
+    all_day: bool = False
+    location: str | None = None
+    notes: str | None = None
+
+
 class ProposedEvent(BaseModel):
     title: str
     start: datetime  # timezone-aware
@@ -31,13 +48,10 @@ class ProposedEvent(BaseModel):
     confidence: Literal["high", "medium", "low"] = "medium"
     # Why the model chose these values / what it was unsure about.
     rationale: str | None = None
-
-
-class ExistingEvent(BaseModel):
-    id: str
-    title: str
-    start: datetime
-    end: datetime
+    # For update/delete: what existing event this acts on, and its prior state.
+    action: Action = "create"
+    target_id: str | None = None
+    previous: ExistingEvent | None = None
 
 
 class Proposal(BaseModel):
@@ -48,3 +62,6 @@ class Proposal(BaseModel):
     conflicts: dict[int, list[ExistingEvent]] = Field(default_factory=dict)
     # Things the model could not determine; shown to the user.
     questions: list[str] = Field(default_factory=list)
+    intent: Intent = "create"
+    # Read-only results for a "query" intent (nothing to confirm).
+    listing: list[ExistingEvent] = Field(default_factory=list)

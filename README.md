@@ -16,8 +16,9 @@ Telegram ─► Inbound ─► RouterExtractor (model-router, vision) ─► Pro
 ## Layout
 | file | role |
 |---|---|
-| `models.py` | data types (Inbound, ProposedEvent, Proposal) |
-| `extract.py` | LLM extraction via the OpenAI-compatible model-router; local-time parsing, one JSON repair retry |
+| `models.py` | data types (Inbound, ProposedEvent, Proposal, ExistingEvent) |
+| `extract.py` | LLM extraction via the OpenAI-compatible model-router; intent + change-set planning, local-time parsing, one JSON repair retry |
+| `recurrence.py` | expands a weekly/monthly rule ("every Saturday in November") into concrete dates, weekday verified |
 | `agent.py` | propose / confirm / cancel / undo; channel-agnostic |
 | `calendars/webcalendar.py` | Shared family calendar through WebCalendar's built-in MCP server |
 | `calendars/google.py` | Optional Google Calendar adapter (`Calendar` protocol in `calendars/__init__.py`) |
@@ -129,4 +130,33 @@ Forwarding WhatsApp: in WhatsApp, long-press a message (or share a screenshot) �
 - Events with no end get `default_duration_min` (60); all-day events span the day.
 - Low-confidence guesses are marked "(unsure)" and listed under "Check:" so you can cancel and resend with more detail.
 - Reply to a proposal message to edit it ("make it 8pm", "drop the second one"); the proposal is re-checked for conflicts.
-- Not built yet: recurring events, multiple calendars, reminders.
+- Recurring plans ("every Saturday in November") are expanded into concrete events by
+  `recurrence.py` from a rule the model returns; the model never lists the dates itself.
+- The model first classifies `intent`: **create**, **update**, **delete** or **query**. For anything
+  but create the agent lists the real events in the range and asks the model which to change, so
+  "move my Saturday gym to 8am" or "delete the standups" produce a change set against real event ids
+  (never invented). `confirm` applies it; `undo` reverses it (it recreates removed events).
+- The bot has `/agenda` (next 7 days) and `/list` (next 30 days). Set `CALENDAR_WEB_URL` to expose the
+  web calendar as a Telegram Mini App from the bot's menu button.
+- Updates are applied as delete + re-add (the WebCalendar MCP has no update tool), so an edited event gets a new id.
+
+## Next steps
+- **Ground every change in a diff.** The create path still trusts the model's reading of the text;
+  feed it the same compact event listing the update/delete path uses, and render each proposal as a
+  single create/update/delete diff card.
+- **Answer queries in prose.** `query` currently lists raw events; have the model summarise them
+  ("three things on Saturday, the first at 9am").
+- **Make updates atomic.** Extend `mcp.php` (or front WebCalendar with your own API) so an
+  `update_event` tool exists; event ids then stay stable and undo restores in place instead of
+  delete + re-add.
+- **Expose the agent as an MCP server** (`list_events`, `propose_change`, `confirm`, `undo`) so
+  Claude / the ows hub can drive the calendar the same way Telegram does, and add a web assistant
+  panel that reuses the same proposal card.
+- **Activate the Mini App.** Set `CALENDAR_WEB_URL` to the calendar-web URL; the bot menu button
+  opens it (code already shipped). Optionally render a month image for clients that cannot use it.
+- **Deduplicate.** Choose one backend (delete the unused Google path) and keep the WebCalendar
+  wire format in one place: route calendar-web writes through the agent HTTP API instead of a second
+  MCP client, so the date/time/GMT/tagging logic is not maintained twice.
+- **Verify against the live router.** The offline tests use fakes; add an integration test that
+  exercises intent classification and change sets against model-router.
+- Still unbuilt: multiple calendars, reminders.

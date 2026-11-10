@@ -78,7 +78,15 @@ class WebCalendarCalendar:
         else:
             start = datetime.strptime(f"{day:%Y%m%d}{raw_time.zfill(6)}", "%Y%m%d%H%M%S").replace(tzinfo=self._tz)
             end = start + timedelta(minutes=max(0, int(raw.get("duration") or 0)))
-        return ExistingEvent(id=str(raw["id"]), title=raw.get("name") or "(no title)", start=start, end=end)
+        return ExistingEvent(
+            id=str(raw["id"]),
+            title=raw.get("name") or "(no title)",
+            start=start,
+            end=end,
+            all_day=(raw_time == "-1"),
+            location=raw.get("location") or None,
+            notes=raw.get("description") or None,
+        )
 
     def create_event(self, event: ProposedEvent, end: datetime, user_id: str | None = None) -> str:
         description = self._description(event.notes, user_id)
