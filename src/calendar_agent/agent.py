@@ -50,10 +50,17 @@ class Agent:
         return p
 
     def propose(self, inbound: Inbound) -> Proposal:
-        ext = self._x.extract(inbound)
+        ext = self._x.extract(inbound, self._nearby(inbound.received_at))
         if ext.intent in ("update", "delete", "query"):
             return self._change(inbound, ext)
         return self._build(uuid.uuid4().hex[:12], inbound.user_id, ext, "create")
+
+    def _nearby(self, now: datetime, days: int = 45) -> list[ExistingEvent]:
+        """The events already on the calendar near now, so creates don't duplicate them."""
+        try:
+            return self._cal.list_events(now, now + timedelta(days=days))
+        except Exception:  # noqa: BLE001 - grounding is best-effort; a failure just means no context
+            return []
 
     def _change(self, inbound: Inbound, ext: Extraction) -> Proposal:
         """List the events the instruction covers, then ask the model which to change."""
@@ -62,8 +69,14 @@ class Agent:
         existing = self._cal.list_events(start, end)
         pid = uuid.uuid4().hex[:12]
         if ext.intent == "query":
+            answer = ""
+            if existing:
+                try:
+                    answer = self._x.summarise(inbound.text, existing, inbound.received_at)
+                except Exception:  # noqa: BLE001 - a listing without prose is still useful
+                    answer = ""
             return Proposal(id=pid, user_id=inbound.user_id, events=[], listing=existing,
-                            questions=ext.questions, intent="query")
+                            questions=ext.questions, intent="query", answer=answer)
         if not existing:
             return Proposal(id=pid, user_id=inbound.user_id, events=[],
                             questions=["I couldn't find any events to change there."], intent=ext.intent)

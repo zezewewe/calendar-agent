@@ -43,13 +43,14 @@ def render_agenda(events: list[ExistingEvent], members: dict[str, str] | None = 
 
 def render(p: Proposal, members: dict[str, str] | None = None) -> str:
     members = members or {}
-    if p.listing:
-        return render_agenda(p.listing, members)
+    if p.intent == "query":
+        body = render_agenda(p.listing, members) if p.listing else "Nothing on the calendar for that period."
+        return f"{p.answer}\n\n{body}" if p.answer else body
     if not p.events:
         head = "I couldn't find an event in that."
         return head + ("\n" + "\n".join(f"- {q}" for q in p.questions) if p.questions else "")
 
-    lines = [f"I'll make {len(p.events)} change(s):", ""]
+    lines = [f"Here's what I'll do ({len(p.events)} change(s)):", ""]
     for i, e in enumerate(p.events):
         flag = " (unsure)" if e.confidence == "low" else ""
         lines.append(f"{i + 1}. {_VERB.get(e.action, 'ADD')}: {e.title} - {_when(e)}{flag}")

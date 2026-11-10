@@ -116,7 +116,7 @@ def test_update_uses_the_update_tool_when_the_server_has_one():
 
 
 class StaticExtractor:
-    def extract(self, inbound):
+    def extract(self, inbound, known=None):
         return Extraction(events=[ProposedEvent(title="Lunch", start=datetime(2026, 11, 5, 13, 0, tzinfo=TZ))])
 
 

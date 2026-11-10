@@ -23,11 +23,13 @@ class Extraction(BaseModel):
 
 
 class Extractor(Protocol):
-    def extract(self, inbound: Inbound) -> Extraction: ...
+    def extract(self, inbound: Inbound, known: list[ExistingEvent] | None = None) -> Extraction: ...
 
     def revise(self, current: Proposal, instruction: str, now: datetime) -> Extraction: ...
 
     def plan(self, instruction: str, existing: list[ExistingEvent], now: datetime) -> Extraction: ...
+
+    def summarise(self, instruction: str, events: list[ExistingEvent], now: datetime) -> str: ...
 
 
 # The model returns *local wall-clock* strings with no offset; we attach the zone ourselves.
@@ -154,13 +156,14 @@ class RouterExtractor:
             client = OpenAI(base_url=base_url, api_key=api_key)
         self._client, self._model, self._tz = client, model, tz
 
-    def extract(self, inbound: Inbound) -> Extraction:
-        raw = self._call(self._messages(inbound))
+    def extract(self, inbound: Inbound, known: list[ExistingEvent] | None = None) -> Extraction:
+        known = known or []
+        raw = self._call(self._messages(inbound, known))
         try:
             return parse_extraction(raw, self._tz)
         except (ValueError, ValidationError) as first:
             # One repair attempt: show the model its own output and the error.
-            retry = self._messages(inbound) + [
+            retry = self._messages(inbound, known) + [
                 {"role": "assistant", "content": raw},
                 {"role": "user", "content": f"That was invalid ({first}). Reply again with valid JSON only."},
             ]
@@ -190,15 +193,10 @@ class RouterExtractor:
 
     def plan(self, instruction: str, existing: list[ExistingEvent], now: datetime) -> Extraction:
         """Choose which listed events to update/delete for an instruction, with their ids."""
-        listing = json.dumps(
-            [{"id": e.id, "title": e.title, "start": e.start.strftime("%Y-%m-%dT%H:%M"),
-              "end": e.end.strftime("%Y-%m-%dT%H:%M"), "all_day": e.all_day,
-              "location": e.location, "notes": e.notes}
-             for e in existing], indent=1)
         n = now.astimezone(self._tz)
         system = _PLAN_SYSTEM.format(now=n.strftime("%Y-%m-%d %H:%M"), weekday=n.strftime("%A"), tz=self._tz.key)
         messages = [{"role": "system", "content": system},
-                    {"role": "user", "content": f"Events on the calendar:\n{listing}\n\nInstruction: {instruction}"}]
+                    {"role": "user", "content": f"Events on the calendar:\n{_listing(existing)}\n\nInstruction: {instruction}"}]
         raw = self._call(messages, _PLAN_SCHEMA, "change_set")
         try:
             return parse_plan(raw, self._tz, {e.id: e for e in existing})
@@ -206,6 +204,18 @@ class RouterExtractor:
             messages += [{"role": "assistant", "content": raw},
                          {"role": "user", "content": f"That was invalid ({first}). Reply again with valid JSON only."}]
             return parse_plan(self._call(messages, _PLAN_SCHEMA, "change_set"), self._tz, {e.id: e for e in existing})
+
+    def summarise(self, instruction: str, events: list[ExistingEvent], now: datetime) -> str:
+        """Answer a question about the calendar in one or two plain sentences."""
+        n = now.astimezone(self._tz)
+        system = (
+            f"You answer questions about a shared family calendar. Current local time is "
+            f"{n.strftime('%Y-%m-%d %H:%M')} ({n.strftime('%A')}), timezone {self._tz.key}. "
+            "Given the events below, answer the question in one or two short, friendly sentences. "
+            "Do not invent events. Reply with the sentence only, no JSON, no preamble."
+        )
+        user = f"Events:\n{_listing(events)}\n\nQuestion: {instruction}"
+        return self._call_text([{"role": "system", "content": system}, {"role": "user", "content": user}]).strip()
 
     def _call(self, messages: list[dict], schema: dict | None = None, name: str = "events") -> str:
         resp = self._client.chat.completions.create(
@@ -216,9 +226,16 @@ class RouterExtractor:
         )
         return resp.choices[0].message.content or ""
 
-    def _messages(self, inbound: Inbound) -> list[dict]:
+    def _call_text(self, messages: list[dict]) -> str:
+        resp = self._client.chat.completions.create(model=self._model, messages=messages, temperature=0)
+        return resp.choices[0].message.content or ""
+
+    def _messages(self, inbound: Inbound, known: list[ExistingEvent]) -> list[dict]:
         now = inbound.received_at.astimezone(self._tz)
         system = _SYSTEM.format(now=now.strftime("%Y-%m-%d %H:%M"), weekday=now.strftime("%A"), tz=self._tz.key)
+        if known:
+            system += ("\n\nEvents already on the calendar near this time (do not add duplicates; use intent "
+                       f"\"update\" or \"delete\" to change one):\n{_listing(known)}")
         parts: list[dict] = []
         if inbound.text:
             parts.append({"type": "text", "text": inbound.text})
@@ -238,6 +255,14 @@ def _loads(raw: str) -> dict:
         return json.loads(s)
     except json.JSONDecodeError as e:
         raise ValueError(f"not JSON: {e}") from e
+
+
+def _listing(events: list[ExistingEvent]) -> str:
+    return json.dumps(
+        [{"id": e.id, "title": e.title, "start": e.start.strftime("%Y-%m-%dT%H:%M"),
+          "end": e.end.strftime("%Y-%m-%dT%H:%M"), "all_day": e.all_day,
+          "location": e.location, "notes": e.notes}
+         for e in events], indent=1)
 
 
 def _local(s: str, tz: ZoneInfo) -> tuple[datetime, bool]:

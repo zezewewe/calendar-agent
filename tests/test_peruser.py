@@ -49,11 +49,14 @@ class FakeCalendarFactory:
 
 
 class FakeExtractor:
-    def extract(self, inbound):
+    def extract(self, inbound, known=None):
         return Extraction(events=[ProposedEvent(title="Lunch", start=datetime(2026, 11, 5, 13, 0, tzinfo=TZ), confidence="high")])
 
     def revise(self, current, instruction, now):
         return self.extract(None)
+
+    def summarise(self, instruction, events, now):
+        return ""
 
 
 class _Req:

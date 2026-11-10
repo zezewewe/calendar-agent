@@ -65,3 +65,5 @@ class Proposal(BaseModel):
     intent: Intent = "create"
     # Read-only results for a "query" intent (nothing to confirm).
     listing: list[ExistingEvent] = Field(default_factory=list)
+    # A short plain-language answer to a query, when the model produced one.
+    answer: str = ""
