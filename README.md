@@ -18,7 +18,7 @@ Telegram ─► Inbound ─► RouterExtractor (model-router, vision) ─► Pro
 |---|---|
 | `models.py` | data types (Inbound, ProposedEvent, Proposal, ExistingEvent) |
 | `extract.py` | LLM extraction via the OpenAI-compatible model-router; intent + change-set planning, local-time parsing, one JSON repair retry |
-| `recurrence.py` | expands a weekly/monthly rule ("every Saturday in November") into concrete dates, weekday verified |
+| `recurrence.py` | builds the RFC 5545 RRULE ("FREQ=WEEKLY;BYDAY=SA;UNTIL=…") handed to the backend's `add_recurring_event` |
 | `agent.py` | propose / confirm / cancel / undo; channel-agnostic |
 | `calendars/webcalendar.py` | Shared family calendar through WebCalendar's built-in MCP server |
 | `channels/telegram.py` | Telegram front end; allow-listed users only |
@@ -110,9 +110,64 @@ propose → confirm safety.
 2. `pip install -e '.[telegram]'`.
 3. Telegram: create a bot with @BotFather; get your numeric user id (e.g. from @userinfobot).
 4. `cp .env.example .env`, fill it in, then `set -a; . ./.env; set +a; calendar-agent`.
-5. Pick `EXTRACT_MODEL` from model-router: it must accept images (`vision-free`, `vision-default`, `vision-claude-code`, ...).
+5. Pick a vision-capable `EXTRACT_MODEL` (see [Switching the vision model](#switching-the-vision-model)).
 
 Forwarding WhatsApp: in WhatsApp, long-press a message (or share a screenshot) → Share/Forward → Telegram → your bot.
+
+## Deploying (interim testing)
+
+**In WebCalendar**, enable the MCP server and write access (**Admin → System Settings → MCP Server**:
+`MCP_SERVER_ENABLED=Y`, `MCP_WRITE_ACCESS=Y` — add/recurring/update/delete are refused without the latter),
+generate a token for the shared `family` account under **Preferences**, and set that user's timezone to
+match `TIMEZONE`. The agent uses `list_events`, `add_event`, `add_recurring_event`, `update_event`,
+`delete_event`, `check_conflicts` and `get_availability`.
+
+**`.env`** needs at least: `CALENDAR_BACKEND=webcalendar`, `WEBCALENDAR_MCP_URL`,
+`WEBCALENDAR_MCP_TOKEN`, `ROUTER_URL` / `ROUTER_API_KEY` / `EXTRACT_MODEL`, `TIMEZONE`,
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS`, `STATE_DB`. Optional: `CALENDAR_WEB_URL` (Mini App menu
+button) and `MCP_USER_ID`.
+
+Run any of the three front ends against the same Agent:
+
+```bash
+calendar-agent          # Telegram bot (long polling)
+calendar-agent serve    # HTTP channel behind the ZeLabs gateway (127.0.0.1:8099)
+calendar-agent mcp      # MCP server on stdio (Claude / the ows hub)
+```
+
+### Switching the vision model
+
+Extraction and image understanding both go through one model, `EXTRACT_MODEL` — a vision-capable
+model-router alias. It defaults to `vision-raus` (a local reasoning model: accurate, but ~30s per
+message). When that route is down or you want faster replies, set `EXTRACT_MODEL` to another alias
+and restart:
+
+| alias | backend |
+| --- | --- |
+| `vision-raus` (default) | `raus-qwen3.8-27b`, local reasoning model |
+| `ds-flash` / `vision-default` | DeepSeek V4.1 Flash — fast, vision |
+| `vision-free` | `oc-nemotron-vl-free` (free) |
+| `vision-free-deepseek` | `oc-go-deepseek-v4.1-flash` (free) |
+| `vision-free-mimo` | `oc-go-mimo-v2.6-flash` (free) |
+| `vision-claude-code` / `vision-claude-code-fast` | Claude via the `cc-*` subscription |
+
+The value is validated against `VisionModel` in `config.py`; a member name (e.g. `FLASH`) also works,
+and an unknown alias fails fast at startup listing the choices. New router aliases are added to that
+enum.
+
+### Telegram bot
+
+The bot uses long polling, so there is no webhook or public URL to configure.
+
+1. In Telegram, open **@BotFather** → `/newbot` → pick a name and a username ending in `bot`.
+   Copy the token (`123456:ABC…`) into `TELEGRAM_BOT_TOKEN`.
+2. Get your numeric user id: message **@userinfobot**, or, after sending the bot one message, run
+   `curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates" | jq '.result[0].message.from.id'`.
+   Put it (comma-separated for several people) in `TELEGRAM_ALLOWED_USERS` — the bot refuses everyone else.
+3. Start it with `calendar-agent`. Optionally set `CALENDAR_WEB_URL` so the bot's menu button opens the
+   web calendar as a Mini App inside the chat.
+
+To stop the bot: send it `/stop`.
 
 ## Tests
 `pip install -e '.[dev]' && pytest` — uses fakes for the LLM and calendar, no network.
@@ -122,22 +177,21 @@ Forwarding WhatsApp: in WhatsApp, long-press a message (or share a screenshot) �
 - Events with no end get `default_duration_min` (60); all-day events span the day.
 - Low-confidence guesses are marked "(unsure)" and listed under "Check:" so you can cancel and resend with more detail.
 - Reply to a proposal message to edit it ("make it 8pm", "drop the second one"); the proposal is re-checked for conflicts.
-- Recurring plans ("every Saturday in November") are expanded into concrete events by
-  `recurrence.py` from a rule the model returns; the model never lists the dates itself.
+- Recurring plans ("every Saturday in November") become one recurring event: `recurrence.py` turns the
+  model's weekday rule into an RRULE, and WebCalendar's `add_recurring_event` owns the series (with its
+  own UI and .ics exceptions). The model never lists the dates itself.
 - The model first classifies `intent`: **create**, **update**, **delete** or **query**. For anything
   but create the agent lists the real events in the range and asks the model which to change, so
   "move my Saturday gym to 8am" or "delete the standups" produce a change set against real event ids
-  (never invented). `confirm` applies it; `undo` reverses it (it recreates removed events).
+  (never invented). `confirm` applies it; `undo` reverses it.
+- Conflict warnings come from WebCalendar's own `check_conflicts` (`Calendar.find_conflicts`); updates
+  use its `update_event`. `Calendar.busy_blocks` (`get_availability`) is exposed as the `availability`
+  tool on the agent's MCP server.
 - The bot has `/agenda` (next 7 days), `/list` (next 30 days) and `/calendar` (opens the web UI as a
-  Telegram Mini App). Requests are grounded with the events already near that time, so creates do not
-  duplicate them.
+  Telegram Mini App). Creates are grounded with the events already near that time, so they don't duplicate.
 - A `query` ("what's on next Saturday?") gets a one-line prose answer plus the matching events.
-- Updates go through `Calendar.update_event`: in place when the WebCalendar MCP exposes an `update_event`
-  tool, otherwise delete + re-add (so an edited event may get a new id).
 
 ## Roadmap
-- **Atomic updates everywhere.** Add an `update_event` tool to WebCalendar's `mcp.php` (the adapter already
-  probes for it and uses it when present).
 - **One WebCalendar client.** Route calendar-web's writes through this agent's HTTP API so the
   date/time/GMT/member-tagging logic lives in one place instead of a second client.
 - **Web assistant panel** that reuses the same proposal card, and an optional rendered month image for

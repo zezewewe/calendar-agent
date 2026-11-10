@@ -33,6 +33,12 @@ class Cal:
     def list_events(self, s, e):
         return self.existing
 
+    def find_conflicts(self, start, end):
+        return []
+
+    def busy_blocks(self, start, end):
+        return []
+
     def create_event(self, event, end, user_id=None):
         self.created.append(event)
         return f"id{len(self.created)}"
@@ -60,7 +66,7 @@ def test_initialize_and_tools_list():
     init = handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}, handlers)
     assert init["result"]["serverInfo"]["name"] == "calendar-agent"
     tools = handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}, handlers)["result"]["tools"]
-    assert {t["name"] for t in tools} == {"agenda", "list_events", "propose_change", "confirm", "undo"}
+    assert {t["name"] for t in tools} == {"agenda", "list_events", "availability", "propose_change", "confirm", "undo"}
 
 
 def test_propose_confirm_undo_roundtrip_nothing_written_until_confirm():

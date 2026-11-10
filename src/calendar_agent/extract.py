@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field, ValidationError
 
 from .models import ExistingEvent, Inbound, Intent, Proposal, ProposedEvent
-from .recurrence import occurrences
+from .recurrence import rrule
 
 
 class Extraction(BaseModel):
@@ -300,34 +300,18 @@ def parse_extraction(raw: str, tz: ZoneInfo) -> Extraction:
             # "10pm-1am": the end rolled past midnight. Otherwise the end is unusable; drop it.
             rolled = end + timedelta(days=1)
             end = rolled if not all_day and rolled - start <= timedelta(hours=24) else None
-
-        def make(when: datetime, span: timedelta | None = None) -> ProposedEvent:
-            return ProposedEvent(
-                title=e["title"].strip(),
-                start=when,
-                end=when + span if span is not None else None,
-                all_day=all_day,
-                location=e.get("location"),
-                notes=e.get("notes"),
-                confidence=e.get("confidence", "medium"),
-                rationale=e.get("rationale"),
-            )
-
         rule = _rule(e)
-        if rule is None:
-            events.append(make(start, (end - start) if end else None))
-            continue
-
-        weekdays, until, count = rule
-        dates, capped = occurrences(weekdays, start.date(), until, count)
-        if capped:
-            questions.append(f"'{e['title'].strip()}' repeats a lot; I kept the first {len(dates)}.")
-        if not dates:  # e.g. an empty/invalid rule - fall back to the single occurrence
-            events.append(make(start, (end - start) if end else None))
-            continue
-        span = (end - start) if end else None
-        for day in dates:
-            events.append(make(datetime.combine(day, start.timetz()), span))
+        events.append(ProposedEvent(
+            title=e["title"].strip(),
+            start=start,
+            end=end,
+            all_day=all_day,
+            location=e.get("location"),
+            notes=e.get("notes"),
+            confidence=e.get("confidence", "medium"),
+            rationale=e.get("rationale"),
+            rrule=rrule(rule[0], start.date(), rule[1], rule[2]) if rule else None,
+        ))
     range_start, range_end = _range(data.get("range"), tz)
     intent = data.get("intent", "create")
     return Extraction(events=events, questions=questions, intent=intent, range_start=range_start, range_end=range_end)

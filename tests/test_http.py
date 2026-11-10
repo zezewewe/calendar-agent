@@ -25,6 +25,12 @@ class FakeCal:
     def list_events(self, s, e):
         return self.existing
 
+    def find_conflicts(self, start, end):
+        return []
+
+    def busy_blocks(self, start, end):
+        return []
+
     def create_event(self, event, end, user_id=None):
         self.created.append((event, end))
         return f"id{len(self.created)}"

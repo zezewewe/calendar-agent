@@ -68,7 +68,37 @@ class WebCalendarCalendar:
             "start_date": start.astimezone(self._tz).strftime("%Y%m%d"),
             "end_date": end.astimezone(self._tz).strftime("%Y%m%d"),
         })
-        return [self._existing(e) for e in result.get("events", [])]
+        return self._parse_events(result)
+
+    def find_conflicts(self, start: datetime, end: datetime) -> list[ExistingEvent]:
+        # check_conflicts takes GMT, like the other write tools, and ignores untimed events.
+        duration = max(0, round((end - start).total_seconds() / 60))
+        utc = start.astimezone(timezone.utc)
+        result = self._call("check_conflicts", {
+            "date": utc.strftime("%Y%m%d"), "time": utc.strftime("%H%M%S"), "duration": duration,
+        })
+        return self._parse_events(result)
+
+    def busy_blocks(self, start: datetime, end: datetime) -> list[ExistingEvent]:
+        result = self._call("get_availability", {
+            "start_date": start.astimezone(self._tz).strftime("%Y%m%d"),
+            "end_date": end.astimezone(self._tz).strftime("%Y%m%d"),
+        })
+        return self._parse_events(result)
+
+    def _parse_events(self, result: dict) -> list[ExistingEvent]:
+        """Parse an event list the tool returned, under whatever key it used."""
+        for key in ("events", "conflicts", "busy", "blocks", "availability"):
+            value = result.get(key)
+            if isinstance(value, list):
+                out = []
+                for raw in value:
+                    try:
+                        out.append(self._existing(raw))
+                    except (KeyError, ValueError):
+                        continue
+                return out
+        return []
 
     def _existing(self, raw: dict) -> ExistingEvent:
         day = datetime.strptime(str(raw["date"]), "%Y%m%d").date()
@@ -105,7 +135,14 @@ class WebCalendarCalendar:
         return arguments
 
     def create_event(self, event: ProposedEvent, end: datetime, user_id: str | None = None) -> str:
-        result = self._call("add_event", self._arguments(event, end, user_id))
+        arguments = self._arguments(event, end, user_id)
+        if event.rrule:
+            # WebCalendar owns the recurrence engine; create one recurring series.
+            result = self._call("add_recurring_event", {**arguments, "rrule": event.rrule})
+            if "event_id" not in result:
+                raise RuntimeError("WebCalendar add_recurring_event returned no event_id")
+            return str(result["event_id"])
+        result = self._call("add_event", arguments)
         if "event_id" not in result:
             raise RuntimeError("WebCalendar add_event returned no event_id")
         return str(result["event_id"])

@@ -48,6 +48,8 @@ class ProposedEvent(BaseModel):
     confidence: Literal["high", "medium", "low"] = "medium"
     # Why the model chose these values / what it was unsure about.
     rationale: str | None = None
+    # RFC 5545 rule for a repeating event; the backend owns the recurrence engine.
+    rrule: str | None = None
     # For update/delete: what existing event this acts on, and its prior state.
     action: Action = "create"
     target_id: str | None = None

@@ -9,6 +9,14 @@ from ..models import ExistingEvent, ProposedEvent
 class Calendar(Protocol):
     def list_events(self, start: datetime, end: datetime) -> list[ExistingEvent]: ...
 
+    def find_conflicts(self, start: datetime, end: datetime) -> list[ExistingEvent]:
+        """Existing events overlapping the slot, per the backend's own conflict check."""
+        ...
+
+    def busy_blocks(self, start: datetime, end: datetime) -> list[ExistingEvent]:
+        """Busy time blocks in the range, without reading event details."""
+        ...
+
     def create_event(self, event: ProposedEvent, end: datetime, user_id: str | None = None) -> str:
         """Create the event, return its id. `end` is resolved; `user_id` is the confirmed caller."""
         ...
