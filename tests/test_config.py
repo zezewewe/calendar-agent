@@ -34,3 +34,13 @@ def test_blank_values_default_to_raus():
 def test_unknown_model_is_rejected_with_the_choices():
     with pytest.raises(ValueError, match="vision-raus"):
         VisionModel.parse("gpt-4o")
+
+
+def test_menu_button_url_keeps_https():
+    assert Config(calendar_web_url="https://cal.example.dev/app").menu_button_url == "https://cal.example.dev/app"
+    assert Config(calendar_web_url="  https://cal.example.dev  ").menu_button_url == "https://cal.example.dev"
+
+
+def test_menu_button_url_drops_non_https():
+    for bad in ("http://localhost:3400", "localhost:3400", "ftp://host/x", "javascript:alert(1)", "", "   "):
+        assert Config(calendar_web_url=bad).menu_button_url == ""

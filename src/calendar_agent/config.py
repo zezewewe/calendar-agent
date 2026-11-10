@@ -4,6 +4,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from enum import Enum
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 
@@ -66,6 +67,17 @@ class Config:
     @property
     def tz(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
+
+    @property
+    def menu_button_url(self) -> str:
+        """The Mini App URL for the chat menu button, or "" when it is unusable.
+
+        Telegram only accepts https web-app URLs, so an http or malformed
+        ``calendar_web_url`` is dropped (the Telegram front end warns) rather than
+        crashing the bot at startup.
+        """
+        url = self.calendar_web_url.strip()
+        return url if urlparse(url).scheme == "https" else ""
 
     @classmethod
     def from_env(cls) -> "Config":

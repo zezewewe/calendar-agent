@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta
 
 from ..agent import Agent
 from ..config import Config
 from ..models import Attachment, Inbound
 from ..render import render, render_agenda
+
+logger = logging.getLogger(__name__)
 
 
 def run(cfg: Config, agent: Agent) -> None:
@@ -109,19 +112,27 @@ def run(cfg: Config, agent: Agent) -> None:
     async def on_calendar(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if str(update.effective_user.id) not in allowed:
             return
-        if not cfg.calendar_web_url:
-            await update.effective_message.reply_text("Set CALENDAR_WEB_URL to enable the calendar web app.")
+        url = cfg.menu_button_url
+        if not url:
+            await update.effective_message.reply_text(
+                "Set CALENDAR_WEB_URL to an https URL to enable the calendar web app."
+            )
             return
         await update.effective_message.reply_text(
             "Open the visual calendar:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Calendar", web_app=WebAppInfo(url=cfg.calendar_web_url))]]),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Calendar", web_app=WebAppInfo(url=url))]]),
         )
 
     async def post_init(app: Application) -> None:
-        if cfg.calendar_web_url:  # open the web UI as a Mini App from the chat menu
-            await app.bot.set_chat_menu_button(
-                menu_button=MenuButtonWebApp(text="Calendar", web_app=WebAppInfo(url=cfg.calendar_web_url))
-            )
+        url = cfg.menu_button_url  # open the web UI as a Mini App from the chat menu
+        if not url:
+            if cfg.calendar_web_url:
+                logger.warning("Ignoring CALENDAR_WEB_URL=%r: Telegram menu buttons require an https URL.", cfg.calendar_web_url)
+            return
+        try:
+            await app.bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Calendar", web_app=WebAppInfo(url=url)))
+        except Exception as e:  # noqa: BLE001 - a bad menu button must not take the bot down
+            logger.warning("Could not set the calendar menu button (%s); continuing without it.", e)
 
     app = Application.builder().token(cfg.telegram_bot_token).post_init(post_init).build()
     app.add_handler(CommandHandler("start", on_start))
