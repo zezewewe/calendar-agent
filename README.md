@@ -5,6 +5,8 @@ chat — and it proposes calendar changes (create, update, delete, or a plain an
 land in a shared WebCalendar. Nothing is written until you confirm; conflicts with existing events are flagged;
 **Undo** reverses what was applied.
 
+New to it? See **[USER_GUIDE.md](USER_GUIDE.md)** for the day-to-day usage (adding, changing and asking).
+
 ```
 Telegram ─► Inbound ─► RouterExtractor (model-router, vision) ─► ProposedEvents
                                                          │
@@ -187,8 +189,9 @@ To stop the bot: send it `/stop`.
 - Conflict warnings come from WebCalendar's own `check_conflicts` (`Calendar.find_conflicts`); updates
   use its `update_event`. `Calendar.busy_blocks` (`get_availability`) is exposed as the `availability`
   tool on the agent's MCP server.
-- The bot has `/agenda` (next 7 days), `/list` (next 30 days) and `/calendar` (opens the web UI as a
-  Telegram Mini App). Creates are grounded with the events already near that time, so they don't duplicate.
+- The bot has `/help` (how to use it), `/agenda` (next 7 days), `/list` (next 30 days) and `/calendar`
+  (opens the web UI as a Telegram Mini App); the same set is published as the chat command menu. Creates are
+  grounded with the events already near that time, so they don't duplicate.
 - A `query` ("what's on next Saturday?") gets a one-line prose answer plus the matching events.
 
 ## Roadmap
