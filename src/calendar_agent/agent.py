@@ -109,12 +109,12 @@ class Agent:
                 self._cal.delete_event(e.target_id)
                 self._store.journal_remove(p.id, user_id, e.target_id, _snapshot(e.title, e.start, e.end, e.all_day, e.location, e.notes))
             elif e.action == "update":
-                if e.target_id:
-                    self._cal.delete_event(e.target_id)
-                    if e.previous is not None:
-                        old = e.previous
-                        self._store.journal_remove(p.id, user_id, e.target_id, _snapshot(old.title, old.start, old.end, old.all_day, old.location, old.notes))
-                new_id = self._cal.create_event(e, resolve_end(e, self._dur), user_id=user_id)
+                if e.target_id is None:
+                    continue
+                if e.previous is not None:
+                    old = e.previous
+                    self._store.journal_remove(p.id, user_id, e.target_id, _snapshot(old.title, old.start, old.end, old.all_day, old.location, old.notes))
+                new_id = self._cal.update_event(e.target_id, e, resolve_end(e, self._dur), user_id=user_id)
                 ids.append(new_id)
                 self._store.journal_add(p.id, user_id, new_id)
             else:

@@ -33,6 +33,7 @@ class WebCalendarCalendar:
         self._url, self._token, self._tz = mcp_url, token, tz
         self._members = member_names or {}
         self._transport = transport or self._post
+        self._tool_cache: set[str] | None = None
 
     def _post(self, payload: dict) -> dict:
         request = urllib.request.Request(
@@ -88,24 +89,51 @@ class WebCalendarCalendar:
             notes=raw.get("description") or None,
         )
 
-    def create_event(self, event: ProposedEvent, end: datetime, user_id: str | None = None) -> str:
-        description = self._description(event.notes, user_id)
+    def _arguments(self, event: ProposedEvent, end: datetime, user_id: str | None) -> dict:
         arguments = {
             "name": event.title,
             "date": event.start.astimezone(self._tz).strftime("%Y%m%d"),
             "time": "-1" if event.all_day else event.start.astimezone(timezone.utc).strftime("%H%M%S"),
             "duration": 0 if event.all_day else max(0, round((end - event.start).total_seconds() / 60)),
-            "description": description,
+            "description": self._description(event.notes, user_id),
             "location": event.location or "",
         }
         if not event.all_day:
             # add_event expects both date and time in GMT, including the date.
             utc_start = event.start.astimezone(timezone.utc)
             arguments["date"] = utc_start.strftime("%Y%m%d")
-        result = self._call("add_event", arguments)
+        return arguments
+
+    def create_event(self, event: ProposedEvent, end: datetime, user_id: str | None = None) -> str:
+        result = self._call("add_event", self._arguments(event, end, user_id))
         if "event_id" not in result:
             raise RuntimeError("WebCalendar add_event returned no event_id")
         return str(result["event_id"])
+
+    def _tools(self) -> set[str]:
+        """Tool names the MCP server advertises, cached; empty when it cannot be listed."""
+        if self._tool_cache is not None:
+            return self._tool_cache
+        names: set[str] = set()
+        try:
+            message = self._transport({
+                "jsonrpc": "2.0", "id": uuid.uuid4().hex, "method": "tools/list", "params": {},
+            })
+            result = message.get("result") or {}
+            names = {t["name"] for t in result.get("tools", []) if isinstance(t, dict) and "name" in t}
+        except Exception:  # noqa: BLE001 - an MCP without tools/list simply has no update tool
+            names = set()
+        self._tool_cache = names
+        return names
+
+    def update_event(self, event_id: str, event: ProposedEvent, end: datetime, user_id: str | None = None) -> str:
+        if "update_event" in self._tools():  # a WebCalendar that exposes it updates in place
+            arguments = {**self._arguments(event, end, user_id), "event_id": int(event_id)}
+            result = self._call("update_event", arguments)
+            return str(result.get("event_id", event_id))
+        # Stock WebCalendar MCP has no update tool: delete + re-add (documented fallback).
+        self.delete_event(event_id)
+        return self.create_event(event, end, user_id)
 
     def _description(self, notes: str | None, user_id: str | None) -> str:
         if user_id is None:

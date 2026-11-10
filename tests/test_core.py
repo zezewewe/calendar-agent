@@ -53,6 +53,10 @@ class FakeCal:
         self.created.append((event, end))
         return f"id{len(self.created)}"
 
+    def update_event(self, event_id, event, end, user_id=None):
+        self.deleted.append(event_id)
+        return self.create_event(event, end, user_id)
+
     def delete_event(self, i):
         self.deleted.append(i)
 

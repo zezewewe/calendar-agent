@@ -13,6 +13,13 @@ class Calendar(Protocol):
         """Create the event, return its id. `end` is resolved; `user_id` is the confirmed caller."""
         ...
 
+    def update_event(self, event_id: str, event: ProposedEvent, end: datetime, user_id: str | None = None) -> str:
+        """Change an existing event in place where the backend supports it; return its id.
+
+        Backends without an update primitive may fall back to delete + create.
+        """
+        ...
+
     def delete_event(self, event_id: str) -> None: ...
 
 
