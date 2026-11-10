@@ -124,8 +124,8 @@ match `TIMEZONE`. The agent uses `list_events`, `add_event`, `add_recurring_even
 
 **`.env`** needs at least: `CALENDAR_BACKEND=webcalendar`, `WEBCALENDAR_MCP_URL`,
 `WEBCALENDAR_MCP_TOKEN`, `ROUTER_URL` / `ROUTER_API_KEY` / `EXTRACT_MODEL`, `TIMEZONE`,
-`TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS`, `STATE_DB`. Optional: `CALENDAR_WEB_URL` (Mini App menu
-button) and `MCP_USER_ID`.
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS`, `STATE_DB`. Optional: `CALENDAR_WEB_URL` (the Mini App
+menu button — **https only**; an http value is ignored with a warning, not a crash) and `MCP_USER_ID`.
 
 Run any of the three front ends against the same Agent:
 
@@ -164,8 +164,8 @@ The bot uses long polling, so there is no webhook or public URL to configure.
 2. Get your numeric user id: message **@userinfobot**, or, after sending the bot one message, run
    `curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates" | jq '.result[0].message.from.id'`.
    Put it (comma-separated for several people) in `TELEGRAM_ALLOWED_USERS` — the bot refuses everyone else.
-3. Start it with `calendar-agent`. Optionally set `CALENDAR_WEB_URL` so the bot's menu button opens the
-   web calendar as a Mini App inside the chat.
+3. Start it with `calendar-agent`. Optionally set `CALENDAR_WEB_URL` (must be **https**) so the bot's menu
+   button opens the web calendar as a Mini App inside the chat.
 
 To stop the bot: send it `/stop`.
 
