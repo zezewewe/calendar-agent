@@ -114,6 +114,27 @@ propose → confirm safety.
 
 Forwarding WhatsApp: in WhatsApp, long-press a message (or share a screenshot) → Share/Forward → Telegram → your bot.
 
+## Deploying (interim testing)
+
+**In WebCalendar**, enable the MCP server and write access (**Admin → System Settings → MCP Server**:
+`MCP_SERVER_ENABLED=Y`, `MCP_WRITE_ACCESS=Y` — add/recurring/update/delete are refused without the latter),
+generate a token for the shared `family` account under **Preferences**, and set that user's timezone to
+match `TIMEZONE`. The agent uses `list_events`, `add_event`, `add_recurring_event`, `update_event`,
+`delete_event`, `check_conflicts` and `get_availability`.
+
+**`.env`** needs at least: `CALENDAR_BACKEND=webcalendar`, `WEBCALENDAR_MCP_URL`,
+`WEBCALENDAR_MCP_TOKEN`, `ROUTER_URL` / `ROUTER_API_KEY` / `EXTRACT_MODEL`, `TIMEZONE`,
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS`, `STATE_DB`. Optional: `CALENDAR_WEB_URL` (Mini App menu
+button) and `MCP_USER_ID`.
+
+Run any of the three front ends against the same Agent:
+
+```bash
+calendar-agent          # Telegram bot (long polling)
+calendar-agent serve    # HTTP channel behind the ZeLabs gateway (127.0.0.1:8099)
+calendar-agent mcp      # MCP server on stdio (Claude / the ows hub)
+```
+
 ## Tests
 `pip install -e '.[dev]' && pytest` — uses fakes for the LLM and calendar, no network.
 
