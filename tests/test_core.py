@@ -53,6 +53,10 @@ class FakeCal:
         self.created.append((event, end))
         return f"id{len(self.created)}"
 
+    def update_event(self, event_id, event, end, user_id=None):
+        self.deleted.append(event_id)
+        return self.create_event(event, end, user_id)
+
     def delete_event(self, i):
         self.deleted.append(i)
 
@@ -234,6 +238,22 @@ def test_delete_intent_removes_matched_event_and_undo_recreates_it():
     assert p.events[0].action == "delete" and p.events[0].target_id == "7"
     assert a.confirm(p.id, "u1") == [] and cal.deleted == ["7"]
     assert a.undo(p.id, "u1") == 1 and len(cal.created) == 1
+
+
+def test_query_returns_a_prose_answer():
+    e1 = ExistingEvent(id="7", title="Standup", start=datetime(2026, 11, 3, 9, 0, tzinfo=TZ), end=datetime(2026, 11, 3, 9, 30, tzinfo=TZ))
+    a = make_agent(FakeClient(rawx(intent="query", range={"start": "2026-11-01", "end": "2026-11-30"}),
+                              "You have a standup on Tuesday at 9."), FakeCal([e1]))
+    p = a.propose(inbound("what's on in November?"))
+    assert p.answer == "You have a standup on Tuesday at 9." and p.listing
+
+
+def test_create_path_is_grounded_with_nearby_events():
+    c = FakeClient(raw())
+    known = [ExistingEvent(id="7", title="Standup", start=datetime(2026, 11, 3, 9, 0, tzinfo=TZ), end=datetime(2026, 11, 3, 9, 30, tzinfo=TZ))]
+    RouterExtractor("", "", "m", TZ, client=c).extract(inbound(), known)
+    system = c.calls[0]["messages"][0]["content"]
+    assert "Standup" in system and "\"update\"" in system
 
 
 def test_query_lists_events_and_is_not_confirmable():

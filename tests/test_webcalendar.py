@@ -17,11 +17,16 @@ NOW = datetime(2026, 10, 31, 12, 0, tzinfo=TZ)
 
 
 class FakeMcp:
-    def __init__(self, **responses):
+    def __init__(self, tools=(), **responses):
+        self.tools = set(tools)
         self.responses = responses
         self.calls = []
 
     def __call__(self, payload):
+        if payload.get("method") == "tools/list":
+            self.calls.append(("tools/list", {}))
+            return {"jsonrpc": "2.0", "id": payload["id"],
+                    "result": {"tools": [{"name": n} for n in sorted(self.tools)]}}
         params = payload["params"]
         self.calls.append((params["name"], params["arguments"]))
         response = self.responses[params["name"]]
@@ -91,8 +96,27 @@ def test_delete_event_and_tool_errors():
         calendar(mcp).delete_event("9")
 
 
+def test_update_falls_back_to_delete_and_add_when_no_update_tool():
+    mcp = FakeMcp(delete_event={"success": True, "event_id": 9}, add_event={"success": True, "event_id": 10})
+    cal = calendar(mcp)
+    event = ProposedEvent(title="Dinner", start=datetime(2026, 11, 5, 19, 0, tzinfo=TZ))
+    new_id = cal.update_event("9", event, datetime(2026, 11, 5, 20, 0, tzinfo=TZ), user_id="u1")
+
+    assert new_id == "10"
+    assert [name for name, _ in mcp.calls] == ["tools/list", "delete_event", "add_event"]
+
+
+def test_update_uses_the_update_tool_when_the_server_has_one():
+    mcp = FakeMcp(tools=["update_event"], update_event={"success": True, "event_id": 9})
+    cal = calendar(mcp)
+    event = ProposedEvent(title="Dinner", start=datetime(2026, 11, 5, 19, 0, tzinfo=TZ))
+    assert cal.update_event("9", event, datetime(2026, 11, 5, 20, 0, tzinfo=TZ), user_id="u1") == "9"
+    assert [name for name, _ in mcp.calls] == ["tools/list", "update_event"]
+    assert mcp.calls[-1][1]["event_id"] == 9
+
+
 class StaticExtractor:
-    def extract(self, inbound):
+    def extract(self, inbound, known=None):
         return Extraction(events=[ProposedEvent(title="Lunch", start=datetime(2026, 11, 5, 13, 0, tzinfo=TZ))])
 
 

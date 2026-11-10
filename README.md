@@ -1,9 +1,9 @@
 # calendar-agent
 
 Forward anything event-like to a Telegram bot — a typed note, a screenshot of a poster or ticket, a WhatsApp
-chat — and it proposes calendar events. You tap **Add to calendar** and they land in a shared WebCalendar
-(or, optionally, Google Calendar). Nothing is written until you confirm; conflicts with existing events are
-flagged; **Undo** removes what was added.
+chat — and it proposes calendar changes (create, update, delete, or a plain answer). You tap **Apply** and they
+land in a shared WebCalendar. Nothing is written until you confirm; conflicts with existing events are flagged;
+**Undo** reverses what was applied.
 
 ```
 Telegram ─► Inbound ─► RouterExtractor (model-router, vision) ─► ProposedEvents
@@ -21,17 +21,15 @@ Telegram ─► Inbound ─► RouterExtractor (model-router, vision) ─► Pro
 | `recurrence.py` | expands a weekly/monthly rule ("every Saturday in November") into concrete dates, weekday verified |
 | `agent.py` | propose / confirm / cancel / undo; channel-agnostic |
 | `calendars/webcalendar.py` | Shared family calendar through WebCalendar's built-in MCP server |
-| `calendars/google.py` | Optional Google Calendar adapter (`Calendar` protocol in `calendars/__init__.py`) |
-| `calendars/registry.py` | email → calendar id, for the optional per-user Google backend |
-| `calendars/peruser.py` | one agent account, one secondary calendar per user, shared to their Gmail |
 | `channels/telegram.py` | Telegram front end; allow-listed users only |
-| `channels/http.py` | HTTP front end for the ZeLabs gateway; per-user, verified by `X-Zelabs-Identity` |
+| `channels/http.py` | HTTP front end for the ZeLabs gateway; verified by `X-Zelabs-Identity` |
+| `mcp.py` | MCP server (stdio) wrapping the same Agent (`calendar-agent mcp`) |
 | `identity.py` | verifies the gateway's `X-Auth-Email` / `X-Zelabs-Identity` (HMAC) |
-| `pool.py` | builds an `Agent` bound to the caller's own calendar |
-| `store.py` | SQLite: pending proposals + created event ids for undo |
+| `pool.py` | builds an `Agent` per caller from the shared calendar + store |
+| `store.py` | SQLite: pending proposals + a change journal for undo |
 
 New channel (e.g. WhatsApp Cloud API) = build an `Inbound`, call `agent.propose`, call `agent.confirm`.
-New calendar backend = implement the 3-method `Calendar` protocol.
+New front end = reuse the same `Agent`; `mcp.py` shows the minimal shape.
 
 ## Shared family calendar (WebCalendar)
 
@@ -87,38 +85,32 @@ Preferences. Set `WEBCALENDAR_MCP_URL` to its `mcp.php` URL and `WEBCALENDAR_MCP
 user's timezone preference must match `TIMEZONE`: writes are sent in GMT, while WebCalendar returns event times in
 the user's local timezone. Keep the MCP endpoint authenticated even though calendar contents are shared.
 
-## Per-user calendars with Google (alternative HTTP backend)
+## HTTP channel and MCP server
 
-Set `CALENDAR_BACKEND=google` to use Google instead of WebCalendar.
-
-`calendar-agent serve` runs an HTTP front end behind the [ZeLabs gateway](../local-harness/docs/zelabs.md)
-that gives every user their own calendar without a per-user consent screen: the
-single Google account above owns one secondary calendar per user and shares it
-(ACL role `SHARE_ROLE`, default `writer`) with that user's Gmail, so events show
-up inside *their* Google Calendar. `calendars/registry.py` remembers the mapping.
-
-The caller is identified by the email Cloudflare Access puts in `X-Auth-Email`,
-trusted only when the per-route `X-Zelabs-Identity` HMAC checks out against the
-gateway's master key (`~/.ows/zelabs.identity.key`). Each request is served by an
-`Agent` bound to that user's calendar, sharing the one `Store` and extractor.
+`calendar-agent serve` runs an HTTP front end behind the [ZeLabs gateway](../local-harness/docs/zelabs.md).
+The caller is identified by the email Cloudflare Access puts in `X-Auth-Email`, trusted only when the
+per-route `X-Zelabs-Identity` HMAC checks out against the gateway's master key (`~/.ows/zelabs.identity.key`).
+Everyone shares the one WebCalendar.
 
 ```bash
-calendar-agent auth          # once: the shared agent Google account
 calendar-agent serve         # http://127.0.0.1:8099, route id "calendar"
 calendar-agent serve --insecure   # local testing only: trust X-Auth-Email as-is
+calendar-agent mcp           # MCP server (stdio) wrapping the same Agent
 ```
 
 Endpoints: `GET /api/health`, `POST /api/{propose,revise,confirm,cancel,undo}`.
-Then register the route in `zelabs/{routes.json,apps.json,policy.json}` and add a
-Calendar tab. Undo is scoped to the requesting user.
+Register the route in `zelabs/{routes.json,apps.json,policy.json}` and add a Calendar tab.
+
+`calendar-agent mcp` speaks MCP over stdin/stdout and exposes `list_events`, `propose_change`, `confirm`,
+`undo` and `agenda`, so an MCP client (Claude, the ows hub) drives the same Agent under the same
+propose → confirm safety.
 
 ## Setup
 1. Install WebCalendar v1.9.27 or a later security release, configure its shared agent account, and enable MCP/read-write access as above.
-2. `pip install -e '.[telegram]'` (add the `google` extra only when using the Google backend).
+2. `pip install -e '.[telegram]'`.
 3. Telegram: create a bot with @BotFather; get your numeric user id (e.g. from @userinfobot).
 4. `cp .env.example .env`, fill it in, then `set -a; . ./.env; set +a; calendar-agent`.
-5. For Google instead: create an OAuth *Desktop* client in Google Cloud Console, enable the Calendar API, save it as `client_secret.json`, then run `calendar-agent auth` once.
-6. Pick `EXTRACT_MODEL` from model-router: it must accept images (`vision-free`, `vision-default`, `vision-claude-code`, ...).
+5. Pick `EXTRACT_MODEL` from model-router: it must accept images (`vision-free`, `vision-default`, `vision-claude-code`, ...).
 
 Forwarding WhatsApp: in WhatsApp, long-press a message (or share a screenshot) → Share/Forward → Telegram → your bot.
 
@@ -136,27 +128,18 @@ Forwarding WhatsApp: in WhatsApp, long-press a message (or share a screenshot) �
   but create the agent lists the real events in the range and asks the model which to change, so
   "move my Saturday gym to 8am" or "delete the standups" produce a change set against real event ids
   (never invented). `confirm` applies it; `undo` reverses it (it recreates removed events).
-- The bot has `/agenda` (next 7 days) and `/list` (next 30 days). Set `CALENDAR_WEB_URL` to expose the
-  web calendar as a Telegram Mini App from the bot's menu button.
-- Updates are applied as delete + re-add (the WebCalendar MCP has no update tool), so an edited event gets a new id.
+- The bot has `/agenda` (next 7 days), `/list` (next 30 days) and `/calendar` (opens the web UI as a
+  Telegram Mini App). Requests are grounded with the events already near that time, so creates do not
+  duplicate them.
+- A `query` ("what's on next Saturday?") gets a one-line prose answer plus the matching events.
+- Updates go through `Calendar.update_event`: in place when the WebCalendar MCP exposes an `update_event`
+  tool, otherwise delete + re-add (so an edited event may get a new id).
 
-## Next steps
-- **Ground every change in a diff.** The create path still trusts the model's reading of the text;
-  feed it the same compact event listing the update/delete path uses, and render each proposal as a
-  single create/update/delete diff card.
-- **Answer queries in prose.** `query` currently lists raw events; have the model summarise them
-  ("three things on Saturday, the first at 9am").
-- **Make updates atomic.** Extend `mcp.php` (or front WebCalendar with your own API) so an
-  `update_event` tool exists; event ids then stay stable and undo restores in place instead of
-  delete + re-add.
-- **Expose the agent as an MCP server** (`list_events`, `propose_change`, `confirm`, `undo`) so
-  Claude / the ows hub can drive the calendar the same way Telegram does, and add a web assistant
-  panel that reuses the same proposal card.
-- **Activate the Mini App.** Set `CALENDAR_WEB_URL` to the calendar-web URL; the bot menu button
-  opens it (code already shipped). Optionally render a month image for clients that cannot use it.
-- **Deduplicate.** Choose one backend (delete the unused Google path) and keep the WebCalendar
-  wire format in one place: route calendar-web writes through the agent HTTP API instead of a second
-  MCP client, so the date/time/GMT/tagging logic is not maintained twice.
-- **Verify against the live router.** The offline tests use fakes; add an integration test that
-  exercises intent classification and change sets against model-router.
+## Roadmap
+- **Atomic updates everywhere.** Add an `update_event` tool to WebCalendar's `mcp.php` (the adapter already
+  probes for it and uses it when present).
+- **One WebCalendar client.** Route calendar-web's writes through this agent's HTTP API so the
+  date/time/GMT/member-tagging logic lives in one place instead of a second client.
+- **Web assistant panel** that reuses the same proposal card, and an optional rendered month image for
+  Telegram clients that cannot use the Mini App.
 - Still unbuilt: multiple calendars, reminders.

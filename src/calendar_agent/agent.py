@@ -50,10 +50,17 @@ class Agent:
         return p
 
     def propose(self, inbound: Inbound) -> Proposal:
-        ext = self._x.extract(inbound)
+        ext = self._x.extract(inbound, self._nearby(inbound.received_at))
         if ext.intent in ("update", "delete", "query"):
             return self._change(inbound, ext)
         return self._build(uuid.uuid4().hex[:12], inbound.user_id, ext, "create")
+
+    def _nearby(self, now: datetime, days: int = 45) -> list[ExistingEvent]:
+        """The events already on the calendar near now, so creates don't duplicate them."""
+        try:
+            return self._cal.list_events(now, now + timedelta(days=days))
+        except Exception:  # noqa: BLE001 - grounding is best-effort; a failure just means no context
+            return []
 
     def _change(self, inbound: Inbound, ext: Extraction) -> Proposal:
         """List the events the instruction covers, then ask the model which to change."""
@@ -62,8 +69,14 @@ class Agent:
         existing = self._cal.list_events(start, end)
         pid = uuid.uuid4().hex[:12]
         if ext.intent == "query":
+            answer = ""
+            if existing:
+                try:
+                    answer = self._x.summarise(inbound.text, existing, inbound.received_at)
+                except Exception:  # noqa: BLE001 - a listing without prose is still useful
+                    answer = ""
             return Proposal(id=pid, user_id=inbound.user_id, events=[], listing=existing,
-                            questions=ext.questions, intent="query")
+                            questions=ext.questions, intent="query", answer=answer)
         if not existing:
             return Proposal(id=pid, user_id=inbound.user_id, events=[],
                             questions=["I couldn't find any events to change there."], intent=ext.intent)
@@ -109,12 +122,12 @@ class Agent:
                 self._cal.delete_event(e.target_id)
                 self._store.journal_remove(p.id, user_id, e.target_id, _snapshot(e.title, e.start, e.end, e.all_day, e.location, e.notes))
             elif e.action == "update":
-                if e.target_id:
-                    self._cal.delete_event(e.target_id)
-                    if e.previous is not None:
-                        old = e.previous
-                        self._store.journal_remove(p.id, user_id, e.target_id, _snapshot(old.title, old.start, old.end, old.all_day, old.location, old.notes))
-                new_id = self._cal.create_event(e, resolve_end(e, self._dur), user_id=user_id)
+                if e.target_id is None:
+                    continue
+                if e.previous is not None:
+                    old = e.previous
+                    self._store.journal_remove(p.id, user_id, e.target_id, _snapshot(old.title, old.start, old.end, old.all_day, old.location, old.notes))
+                new_id = self._cal.update_event(e.target_id, e, resolve_end(e, self._dur), user_id=user_id)
                 ids.append(new_id)
                 self._store.journal_add(p.id, user_id, new_id)
             else:

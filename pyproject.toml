@@ -6,7 +6,6 @@ requires-python = ">=3.11"
 dependencies = ["pydantic>=2.6", "openai>=1.40"]
 
 [project.optional-dependencies]
-google = ["google-api-python-client>=2.100", "google-auth-oauthlib>=1.2"]
 telegram = ["python-telegram-bot>=21"]
 dev = ["pytest>=8"]
 
