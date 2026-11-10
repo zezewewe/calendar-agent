@@ -103,7 +103,18 @@ def run(cfg: Config, agent: Agent) -> None:
     async def on_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(
             "Forward a note, poster or chat to add events. Ask a question to see the calendar, "
-            "or use /agenda (next 7 days) and /list (next 30 days)."
+            "or use /agenda (next 7 days), /list (next 30 days) and /calendar (the visual calendar)."
+        )
+
+    async def on_calendar(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if str(update.effective_user.id) not in allowed:
+            return
+        if not cfg.calendar_web_url:
+            await update.effective_message.reply_text("Set CALENDAR_WEB_URL to enable the calendar web app.")
+            return
+        await update.effective_message.reply_text(
+            "Open the visual calendar:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Calendar", web_app=WebAppInfo(url=cfg.calendar_web_url))]]),
         )
 
     async def post_init(app: Application) -> None:
@@ -116,6 +127,7 @@ def run(cfg: Config, agent: Agent) -> None:
     app.add_handler(CommandHandler("start", on_start))
     app.add_handler(CommandHandler("agenda", agenda_handler(7)))
     app.add_handler(CommandHandler("list", agenda_handler(30)))
+    app.add_handler(CommandHandler("calendar", on_calendar))
     app.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.PHOTO | filters.Document.IMAGE, on_message))
     app.add_handler(CallbackQueryHandler(on_button))
     app.run_polling()

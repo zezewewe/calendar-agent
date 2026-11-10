@@ -19,7 +19,7 @@ import pytest
 
 from calendar_agent.config import Config
 from calendar_agent.extract import RouterExtractor
-from calendar_agent.models import Inbound
+from calendar_agent.models import ExistingEvent, Inbound
 
 _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
@@ -63,3 +63,35 @@ def test_extracts_event_from_text_via_live_router():
     assert event.start.weekday() == 4  # Friday
     assert event.start.hour == 15
     assert "dentist" in event.title.lower()
+
+
+def _extractor():
+    from openai import OpenAI
+
+    cfg = Config.from_env()
+    return cfg, RouterExtractor(cfg.router_url, cfg.router_api_key, cfg.extract_model, cfg.tz,
+                                client=OpenAI(base_url=cfg.router_url, api_key=cfg.router_api_key, timeout=30))
+
+
+def test_change_request_is_not_classified_as_a_create():
+    from openai import APIConnectionError, APITimeoutError
+
+    cfg, ex = _extractor()
+    try:
+        ext = ex.extract(Inbound(user_id="t", text="move my Saturday gym session to 8am", received_at=datetime(2026, 11, 1, 12, 0, tzinfo=cfg.tz)))
+    except (APITimeoutError, APIConnectionError) as e:
+        pytest.skip(f"model-router did not answer: {e}")
+    assert ext.intent in ("update", "delete"), f"a change should not be intent=create (got {ext.intent})"
+
+
+def test_plan_attaches_a_change_to_the_real_event_id():
+    from openai import APIConnectionError, APITimeoutError
+
+    cfg, ex = _extractor()
+    gym = ExistingEvent(id="42", title="Gym", start=datetime(2026, 11, 7, 9, 0, tzinfo=cfg.tz), end=datetime(2026, 11, 7, 10, 0, tzinfo=cfg.tz))
+    try:
+        ext = ex.plan("move the gym to 8am", [gym], datetime(2026, 11, 1, 12, 0, tzinfo=cfg.tz))
+    except (APITimeoutError, APIConnectionError) as e:
+        pytest.skip(f"model-router did not answer: {e}")
+    assert ext.events, f"router returned no change (questions: {ext.questions})"
+    assert ext.events[0].target_id == "42" and ext.events[0].action == "update"

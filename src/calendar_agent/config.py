@@ -13,13 +13,10 @@ class Config:
     extract_model: str = "vision-free"
     timezone: str = "Asia/Singapore"
     default_duration_min: int = 60
-    calendar_backend: str = "google"
+    calendar_backend: str = "webcalendar"
     webcalendar_mcp_url: str = "http://localhost:8080/mcp.php"
     webcalendar_mcp_token: str = ""
     family_members: dict[str, str] = field(default_factory=dict)
-    google_client_secret_file: str = "client_secret.json"
-    google_token_file: str = "token.json"
-    google_calendar_id: str = "primary"
     telegram_bot_token: str = ""
     telegram_allowed_users: frozenset[str] = field(default_factory=frozenset)
     # When set, the bot's menu button opens this URL as a Telegram Mini App (the calendar UI).
@@ -27,9 +24,6 @@ class Config:
     # Identity the MCP server (`calendar-agent mcp`) acts as.
     mcp_user_id: str = "mcp"
     state_db: str = "state.db"
-    # per-user calendars (HTTP/ZeLabs channel): one agent account, one calendar per user
-    calendar_registry_db: str = "calendars.db"
-    share_role: str = "writer"
     # HTTP channel + ZeLabs gateway identity
     http_host: str = "127.0.0.1"
     http_port: int = 8099
@@ -60,16 +54,11 @@ class Config:
             webcalendar_mcp_url=e("WEBCALENDAR_MCP_URL", cls.webcalendar_mcp_url),
             webcalendar_mcp_token=e("WEBCALENDAR_MCP_TOKEN", ""),
             family_members=members,
-            google_client_secret_file=e("GOOGLE_CLIENT_SECRET_FILE", cls.google_client_secret_file),
-            google_token_file=e("GOOGLE_TOKEN_FILE", cls.google_token_file),
-            google_calendar_id=e("GOOGLE_CALENDAR_ID", cls.google_calendar_id),
             telegram_bot_token=e("TELEGRAM_BOT_TOKEN", ""),
             telegram_allowed_users=users,
             calendar_web_url=e("CALENDAR_WEB_URL", ""),
             mcp_user_id=e("MCP_USER_ID", cls.mcp_user_id),
             state_db=e("STATE_DB", cls.state_db),
-            calendar_registry_db=e("CALENDAR_REGISTRY_DB", cls.calendar_registry_db),
-            share_role=e("SHARE_ROLE", cls.share_role),
             http_host=e("HTTP_HOST", cls.http_host),
             http_port=int(e("HTTP_PORT", str(cls.http_port))),
             zelabs_route_id=e("ZELABS_ROUTE_ID", cls.zelabs_route_id),
