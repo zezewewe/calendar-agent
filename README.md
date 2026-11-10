@@ -18,7 +18,7 @@ Telegram ─► Inbound ─► RouterExtractor (model-router, vision) ─► Pro
 |---|---|
 | `models.py` | data types (Inbound, ProposedEvent, Proposal, ExistingEvent) |
 | `extract.py` | LLM extraction via the OpenAI-compatible model-router; intent + change-set planning, local-time parsing, one JSON repair retry |
-| `recurrence.py` | expands a weekly/monthly rule ("every Saturday in November") into concrete dates, weekday verified |
+| `recurrence.py` | builds the RFC 5545 RRULE ("FREQ=WEEKLY;BYDAY=SA;UNTIL=…") handed to the backend's `add_recurring_event` |
 | `agent.py` | propose / confirm / cancel / undo; channel-agnostic |
 | `calendars/webcalendar.py` | Shared family calendar through WebCalendar's built-in MCP server |
 | `channels/telegram.py` | Telegram front end; allow-listed users only |
@@ -122,22 +122,21 @@ Forwarding WhatsApp: in WhatsApp, long-press a message (or share a screenshot) �
 - Events with no end get `default_duration_min` (60); all-day events span the day.
 - Low-confidence guesses are marked "(unsure)" and listed under "Check:" so you can cancel and resend with more detail.
 - Reply to a proposal message to edit it ("make it 8pm", "drop the second one"); the proposal is re-checked for conflicts.
-- Recurring plans ("every Saturday in November") are expanded into concrete events by
-  `recurrence.py` from a rule the model returns; the model never lists the dates itself.
+- Recurring plans ("every Saturday in November") become one recurring event: `recurrence.py` turns the
+  model's weekday rule into an RRULE, and WebCalendar's `add_recurring_event` owns the series (with its
+  own UI and .ics exceptions). The model never lists the dates itself.
 - The model first classifies `intent`: **create**, **update**, **delete** or **query**. For anything
   but create the agent lists the real events in the range and asks the model which to change, so
   "move my Saturday gym to 8am" or "delete the standups" produce a change set against real event ids
-  (never invented). `confirm` applies it; `undo` reverses it (it recreates removed events).
+  (never invented). `confirm` applies it; `undo` reverses it.
+- Conflict warnings come from WebCalendar's own `check_conflicts` (`Calendar.find_conflicts`); updates
+  use its `update_event`. `Calendar.busy_blocks` (`get_availability`) is exposed as the `availability`
+  tool on the agent's MCP server.
 - The bot has `/agenda` (next 7 days), `/list` (next 30 days) and `/calendar` (opens the web UI as a
-  Telegram Mini App). Requests are grounded with the events already near that time, so creates do not
-  duplicate them.
+  Telegram Mini App). Creates are grounded with the events already near that time, so they don't duplicate.
 - A `query` ("what's on next Saturday?") gets a one-line prose answer plus the matching events.
-- Updates go through `Calendar.update_event`: in place when the WebCalendar MCP exposes an `update_event`
-  tool, otherwise delete + re-add (so an edited event may get a new id).
 
 ## Roadmap
-- **Atomic updates everywhere.** Add an `update_event` tool to WebCalendar's `mcp.php` (the adapter already
-  probes for it and uses it when present).
 - **One WebCalendar client.** Route calendar-web's writes through this agent's HTTP API so the
   date/time/GMT/member-tagging logic lives in one place instead of a second client.
 - **Web assistant panel** that reuses the same proposal card, and an optional rendered month image for

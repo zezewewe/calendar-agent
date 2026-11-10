@@ -24,6 +24,8 @@ _TOOL_SPECS = [
     {"name": "list_events", "description": "List events between two dates (YYYY-MM-DD, inclusive).",
      "inputSchema": {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}},
                      "required": ["start", "end"], "additionalProperties": False}},
+    {"name": "availability", "description": "Busy time blocks over the next N days, without event details.",
+     "inputSchema": {"type": "object", "properties": {"days": {"type": "integer", "minimum": 1, "maximum": 365}}, "additionalProperties": False}},
     {"name": "propose_change",
      "description": "Turn a natural-language instruction into a proposed change set (create/update/delete/query). "
                     "Nothing is written until confirm is called with the returned proposal_id.",
@@ -47,6 +49,16 @@ def _handlers(agent: Agent, user_id: str, tz: ZoneInfo) -> dict[str, Callable[[d
     def list_events(args: dict) -> str:
         return render_agenda(agent.agenda(aware(args["start"]), aware(args["end"]) + timedelta(days=1)))
 
+    def availability(args: dict) -> str:
+        days = int(args.get("days") or 7)
+        now = datetime.now(tz)
+        blocks = agent.busy(now, now + timedelta(days=days))
+        if not blocks:
+            return "No busy blocks in that period."
+        return "\n".join(
+            f"- {b.start:%a %d %b %H:%M}-{b.end:%H:%M} ({int((b.end - b.start).total_seconds() // 60)}m)"
+            for b in blocks)
+
     def propose_change(args: dict) -> str:
         inbound = Inbound(user_id=user_id, text=args["text"], received_at=datetime.now(tz))
         p = agent.propose(inbound)
@@ -60,8 +72,8 @@ def _handlers(agent: Agent, user_id: str, tz: ZoneInfo) -> dict[str, Callable[[d
     def undo(args: dict) -> str:
         return f"Reverted {agent.undo(args['proposal_id'], user_id)} change(s)."
 
-    return {"agenda": agenda, "list_events": list_events, "propose_change": propose_change,
-            "confirm": confirm, "undo": undo}
+    return {"agenda": agenda, "list_events": list_events, "availability": availability,
+            "propose_change": propose_change, "confirm": confirm, "undo": undo}
 
 
 def _result(rid, result):

@@ -120,8 +120,30 @@ class StaticExtractor:
         return Extraction(events=[ProposedEvent(title="Lunch", start=datetime(2026, 11, 5, 13, 0, tzinfo=TZ))])
 
 
+def test_recurring_event_uses_add_recurring_event():
+    mcp = FakeMcp(add_recurring_event={"success": True, "event_id": 55})
+    event = ProposedEvent(title="Class", start=datetime(2026, 11, 7, 10, 0, tzinfo=TZ), rrule="FREQ=WEEKLY;BYDAY=SA;UNTIL=20261130")
+    assert calendar(mcp).create_event(event, datetime(2026, 11, 7, 11, 0, tzinfo=TZ), user_id="u1") == "55"
+    name, arguments = mcp.calls[0]
+    assert name == "add_recurring_event" and arguments["rrule"] == "FREQ=WEEKLY;BYDAY=SA;UNTIL=20261130"
+
+
+def test_find_conflicts_uses_the_backend_check():
+    mcp = FakeMcp(check_conflicts={"conflicts": [{"id": 3, "name": "Gym", "date": "20261107", "time": 90000, "duration": 60}]})
+    hits = calendar(mcp).find_conflicts(datetime(2026, 11, 7, 10, 0, tzinfo=TZ), datetime(2026, 11, 7, 11, 0, tzinfo=TZ))
+    assert [h.id for h in hits] == ["3"]
+    assert mcp.calls[0][0] == "check_conflicts"
+
+
+def test_busy_blocks_use_get_availability():
+    mcp = FakeMcp(get_availability={"busy": [{"id": 4, "name": "Work", "date": "20261107", "time": 90000, "duration": 480}]})
+    blocks = calendar(mcp).busy_blocks(datetime(2026, 11, 7, tzinfo=TZ), datetime(2026, 11, 8, tzinfo=TZ))
+    assert [b.id for b in blocks] == ["4"]
+    assert mcp.calls[0][0] == "get_availability"
+
+
 def test_agent_confirmation_passes_recognized_caller_to_shared_calendar():
-    mcp = FakeMcp(list_events={"events": []}, add_event={"success": True, "event_id": 11})
+    mcp = FakeMcp(list_events={"events": []}, check_conflicts={"conflicts": []}, add_event={"success": True, "event_id": 11})
     cal = calendar(mcp)
     agent = Agent(StaticExtractor(), cal, Store(":memory:"), 60)
     proposal = agent.propose(Inbound(user_id="u1", text="lunch", received_at=NOW))

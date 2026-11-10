@@ -1,63 +1,37 @@
-"""Deterministic expansion of a recurrence rule into concrete dates.
+"""Turn the model's weekday rule into an RFC 5545 RRULE.
 
-The model only supplies the *rule* ("weekly on Saturday until 2026-11-30"); this
-module computes the dates. Models are unreliable at date arithmetic and happily
-label a Sunday as Saturday, so - like the timezone handling in ``extract.py`` -
-the weekday logic lives here, in one tested place.
+The model supplies the *rule* ("weekly on Saturday until 2026-11-30"); this builds
+the RRULE string that WebCalendar's ``add_recurring_event`` parses. WebCalendar owns
+the recurrence engine, so the series stays one recurring event (with proper
+exceptions in its UI and .ics export) instead of a pile of independent events.
 """
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import date, timedelta
+from datetime import date
 
-# ISO-ish weekday codes the model is asked to emit.
-WEEKDAY_CODES = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
-
-# Hard ceiling so a "daily" rule with no end can never explode the proposal.
-MAX_OCCURRENCES = 366
+# ISO-ish weekday codes the model is asked to emit (RFC 5545 BYDAY values).
+WEEKDAY_CODES = {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
 
 
 def _end_of_month(d: date) -> date:
     return d.replace(day=monthrange(d.year, d.month)[1])
 
 
-def occurrences(
-    weekdays: list[str],
-    start: date,
-    until: date | None = None,
-    count: int | None = None,
-    limit: int = MAX_OCCURRENCES,
-) -> tuple[list[date], bool]:
-    """Dates matching ``weekdays`` from ``start`` (inclusive).
+def rrule(weekdays: list[str], start: date, until: date | None = None, count: int | None = None) -> str | None:
+    """An RRULE for the given weekdays, or None when there are none.
 
-    Stops after ``count`` occurrences, or on/after ``until`` (inclusive). When
-    neither is given the series is bounded to the end of ``start``'s month, so
-    "every Saturday in November" is safe even if the model omits ``until``.
-    Returns ``(dates, capped)`` where ``capped`` means ``limit`` was hit.
+    Bounded by ``count`` when given, else by ``until`` (calendar date, inclusive),
+    which defaults to the end of ``start``'s month so "every Saturday in November"
+    is safe even if the model omits the end.
     """
-    days = {WEEKDAY_CODES[w] for w in weekdays if w in WEEKDAY_CODES}
+    days = [w for w in (weekdays or []) if w in WEEKDAY_CODES]
     if not days:
-        return [], False
-    if until is None and count is None:
-        until = _end_of_month(start)
-    if until is not None and start > until:
-        return [], False
-
-    found: list[date] = []
-    capped = False
-    d = start
-    while True:
-        if d.weekday() in days:
-            found.append(d)
-            if count is not None and len(found) >= count:
-                break
-            if len(found) >= limit:
-                capped = True
-                break
-        d += timedelta(days=1)
-        if until is not None and d > until:
-            break
-        if (d - start).days > 366 * 5:  # runaway guard when count is huge
-            capped = True
-            break
-    return found, capped
+        return None
+    parts = ["FREQ=WEEKLY", "BYDAY=" + ",".join(days)]
+    if count:
+        parts.append(f"COUNT={int(count)}")
+    else:
+        end = until or _end_of_month(start)
+        parts.append(f"UNTIL={end.strftime('%Y%m%d')}")
+    return ";".join(parts)

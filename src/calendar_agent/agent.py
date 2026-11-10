@@ -18,10 +18,6 @@ def resolve_end(e: ProposedEvent, default_minutes: int) -> datetime:
     return e.start + timedelta(minutes=default_minutes)
 
 
-def overlaps(a_start: datetime, a_end: datetime, b: ExistingEvent) -> bool:
-    return a_start < b.end and b.start < a_end
-
-
 def _snapshot(title: str, start: datetime, end: datetime | None, all_day: bool, location, notes) -> str:
     """The ProposedEvent JSON used to recreate an event if an update/delete is undone."""
     return ProposedEvent(title=title, start=start, end=end, all_day=all_day, location=location, notes=notes).model_dump_json()
@@ -34,15 +30,13 @@ class Agent:
     def _build(self, proposal_id: str, user_id: str, ext: Extraction, intent: str = "create") -> Proposal:
         events = sorted(ext.events, key=lambda e: e.start)
         conflicts: dict[int, list[ExistingEvent]] = {}
-        actionable = [(i, e) for i, e in enumerate(events) if e.action != "delete"]
-        if actionable:
-            ends = [resolve_end(e, self._dur) for _, e in actionable]
-            existing = self._cal.list_events(min(e.start for _, e in actionable), max(ends))
-            for (i, e), end in zip(actionable, ends):
-                # A change must not conflict with the very event it replaces.
-                hits = [x for x in existing if x.id != e.target_id and overlaps(e.start, end, x)]
-                if hits:
-                    conflicts[i] = hits
+        for i, e in enumerate(events):
+            if e.action == "delete":
+                continue
+            # The backend decides what overlaps; a change must not conflict with the event it replaces.
+            hits = [x for x in self._cal.find_conflicts(e.start, resolve_end(e, self._dur)) if x.id != e.target_id]
+            if hits:
+                conflicts[i] = hits
         p = Proposal(id=proposal_id, user_id=user_id, events=events, conflicts=conflicts,
                      questions=ext.questions, intent=intent)
         if events:
@@ -99,6 +93,9 @@ class Agent:
 
     def agenda(self, start: datetime, end: datetime) -> list[ExistingEvent]:
         return self._cal.list_events(start, end)
+
+    def busy(self, start: datetime, end: datetime) -> list[ExistingEvent]:
+        return self._cal.busy_blocks(start, end)
 
     def link_message(self, chat_id: str, message_id: str, proposal_id: str) -> None:
         self._store.link_message(chat_id, message_id, proposal_id)

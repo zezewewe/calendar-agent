@@ -49,6 +49,12 @@ class FakeCal:
     def list_events(self, s, e):
         return self.existing
 
+    def find_conflicts(self, start, end):
+        return [e for e in self.existing if start < e.end and e.start < end]
+
+    def busy_blocks(self, start, end):
+        return self.find_conflicts(start, end)
+
     def create_event(self, event, end, user_id=None):
         self.created.append((event, end))
         return f"id{len(self.created)}"
@@ -175,39 +181,25 @@ def test_revise_wrong_user_or_missing():
     assert a.revise("nope", "u1", "x", NOW) is None
 
 
-def test_recurrence_expands_weekly_saturdays_in_november():
-    # Nov 1 2026 is a Sunday; the series must land on the four Saturdays, not Sunday.
+def test_recurrence_becomes_one_recurring_event_with_an_rrule():
+    # Nov 1 2026 is a Sunday; the rule is handed to the backend as a weekly-BYDAY RRULE.
     x = parse_extraction(raw(ev(start="2026-11-01T10:00", recurrence={"weekdays": ["SA"], "until": "2026-11-30", "count": None})), TZ)
-    starts = [e.start for e in x.events]
-    assert [s.day for s in starts] == [7, 14, 21, 28]
-    assert all(s.weekday() == 5 and s.hour == 10 for s in starts)
-
-
-def test_recurrence_count_bounds_series_to_n_weekdays():
-    x = parse_extraction(raw(ev(start="2026-11-02T09:00", recurrence={"weekdays": ["MO", "WE"], "until": None, "count": 3})), TZ)
-    assert [e.start.day for e in x.events] == [2, 4, 9]
-    assert all(e.start.weekday() in (0, 2) for e in x.events)
-
-
-def test_recurrence_without_until_falls_back_to_end_of_month():
-    x = parse_extraction(raw(ev(start="2026-11-03T08:00", recurrence={"weekdays": ["SA"], "until": None, "count": None})), TZ)
-    assert [e.start.day for e in x.events] == [7, 14, 21, 28]
-
-
-def test_recurrence_preserves_duration_on_every_occurrence():
-    x = parse_extraction(raw(ev(start="2026-11-07T10:00", end="2026-11-07T11:30", recurrence={"weekdays": ["SA"], "until": "2026-11-30", "count": None})), TZ)
-    assert all(e.end - e.start == timedelta(minutes=90) for e in x.events)
-
-
-def test_recurrence_caps_runaway_series_and_flags_it():
-    x = parse_extraction(raw(ev(start="2026-01-01T09:00", recurrence={"weekdays": ["MO", "TU", "WE", "TH", "FR", "SA", "SU"], "until": None, "count": 5000})), TZ)
-    assert len(x.events) == 366
-    assert any("repeats a lot" in q for q in x.questions)
-
-
-def test_empty_recurrence_stays_a_single_event():
-    x = parse_extraction(raw(ev(start="2026-11-05T19:00", recurrence={"weekdays": [], "until": None, "count": None})), TZ)
     assert len(x.events) == 1
+    assert x.events[0].rrule == "FREQ=WEEKLY;BYDAY=SA;UNTIL=20261130"
+
+
+def test_recurrence_count_uses_a_count_bound():
+    x = parse_extraction(raw(ev(start="2026-11-02T09:00", recurrence={"weekdays": ["MO", "WE"], "until": None, "count": 3})), TZ)
+    assert x.events[0].rrule == "FREQ=WEEKLY;BYDAY=MO,WE;COUNT=3"
+
+
+def test_recurrence_without_until_bounds_to_end_of_month():
+    x = parse_extraction(raw(ev(start="2026-11-03T08:00", recurrence={"weekdays": ["SA"], "until": None, "count": None})), TZ)
+    assert x.events[0].rrule == "FREQ=WEEKLY;BYDAY=SA;UNTIL=20261130"
+
+
+def test_no_recurrence_means_no_rrule():
+    assert parse_extraction(raw(ev(start="2026-11-05T19:00")), TZ).events[0].rrule is None
 
 
 def test_update_intent_lists_then_applies_change_and_undo_restores():
