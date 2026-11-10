@@ -3,14 +3,46 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+from enum import Enum
 from zoneinfo import ZoneInfo
+
+
+class VisionModel(Enum):
+    """Vision-capable model-router aliases the extractor can call (it must accept images).
+
+    ``EXTRACT_MODEL`` selects one by alias or by member name (case-insensitive); the
+    default is :attr:`RAUS`. Switch it when a route is down or slow — e.g. ``ds-flash``
+    answers in seconds where ``vision-raus`` (a local reasoning model) can take ~30s.
+    The aliases live in model-router ``config.yaml``; add new ones here.
+    """
+
+    RAUS = "vision-raus"
+    DEFAULT = "vision-default"
+    FLASH = "ds-flash"
+    FREE = "vision-free"
+    FREE_DEEPSEEK = "vision-free-deepseek"
+    FREE_MIMO = "vision-free-mimo"
+    CLAUDE = "vision-claude-code"
+    CLAUDE_FAST = "vision-claude-code-fast"
+
+    @classmethod
+    def parse(cls, value: str | None) -> "VisionModel":
+        """Return the model for an alias or member name; default to :attr:`RAUS` when blank."""
+        if value is None or not value.strip():
+            return cls.RAUS
+        key = value.strip()
+        for member in cls:
+            if key == member.value or key.upper() == member.name:
+                return member
+        known = ", ".join(member.value for member in cls)
+        raise ValueError(f"EXTRACT_MODEL {value!r} is not a known vision model (choose: {known})")
 
 
 @dataclass(frozen=True)
 class Config:
     router_url: str = "http://localhost:4000"
     router_api_key: str = ""
-    extract_model: str = "vision-free"
+    extract_model: str = VisionModel.RAUS.value
     timezone: str = "Asia/Singapore"
     default_duration_min: int = 60
     calendar_backend: str = "webcalendar"
@@ -48,7 +80,7 @@ class Config:
         return cls(
             router_url=e("ROUTER_URL", cls.router_url),
             router_api_key=e("ROUTER_API_KEY", ""),
-            extract_model=e("EXTRACT_MODEL", cls.extract_model),
+            extract_model=VisionModel.parse(e("EXTRACT_MODEL", cls.extract_model)).value,
             timezone=e("TIMEZONE", cls.timezone),
             calendar_backend=e("CALENDAR_BACKEND", cls.calendar_backend).lower(),
             webcalendar_mcp_url=e("WEBCALENDAR_MCP_URL", cls.webcalendar_mcp_url),

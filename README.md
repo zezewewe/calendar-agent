@@ -110,7 +110,7 @@ propose → confirm safety.
 2. `pip install -e '.[telegram]'`.
 3. Telegram: create a bot with @BotFather; get your numeric user id (e.g. from @userinfobot).
 4. `cp .env.example .env`, fill it in, then `set -a; . ./.env; set +a; calendar-agent`.
-5. Pick `EXTRACT_MODEL` from model-router: it must accept images (`vision-free`, `vision-default`, `vision-claude-code`, ...).
+5. Pick a vision-capable `EXTRACT_MODEL` (see [Switching the vision model](#switching-the-vision-model)).
 
 Forwarding WhatsApp: in WhatsApp, long-press a message (or share a screenshot) → Share/Forward → Telegram → your bot.
 
@@ -134,6 +134,26 @@ calendar-agent          # Telegram bot (long polling)
 calendar-agent serve    # HTTP channel behind the ZeLabs gateway (127.0.0.1:8099)
 calendar-agent mcp      # MCP server on stdio (Claude / the ows hub)
 ```
+
+### Switching the vision model
+
+Extraction and image understanding both go through one model, `EXTRACT_MODEL` — a vision-capable
+model-router alias. It defaults to `vision-raus` (a local reasoning model: accurate, but ~30s per
+message). When that route is down or you want faster replies, set `EXTRACT_MODEL` to another alias
+and restart:
+
+| alias | backend |
+| --- | --- |
+| `vision-raus` (default) | `raus-qwen3.8-27b`, local reasoning model |
+| `ds-flash` / `vision-default` | DeepSeek V4.1 Flash — fast, vision |
+| `vision-free` | `oc-nemotron-vl-free` (free) |
+| `vision-free-deepseek` | `oc-go-deepseek-v4.1-flash` (free) |
+| `vision-free-mimo` | `oc-go-mimo-v2.6-flash` (free) |
+| `vision-claude-code` / `vision-claude-code-fast` | Claude via the `cc-*` subscription |
+
+The value is validated against `VisionModel` in `config.py`; a member name (e.g. `FLASH`) also works,
+and an unknown alias fails fast at startup listing the choices. New router aliases are added to that
+enum.
 
 ### Telegram bot
 
