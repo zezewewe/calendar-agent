@@ -24,6 +24,8 @@ class Config:
     telegram_allowed_users: frozenset[str] = field(default_factory=frozenset)
     # When set, the bot's menu button opens this URL as a Telegram Mini App (the calendar UI).
     calendar_web_url: str = ""
+    # Identity the MCP server (`calendar-agent mcp`) acts as.
+    mcp_user_id: str = "mcp"
     state_db: str = "state.db"
     # per-user calendars (HTTP/ZeLabs channel): one agent account, one calendar per user
     calendar_registry_db: str = "calendars.db"
@@ -64,6 +66,7 @@ class Config:
             telegram_bot_token=e("TELEGRAM_BOT_TOKEN", ""),
             telegram_allowed_users=users,
             calendar_web_url=e("CALENDAR_WEB_URL", ""),
+            mcp_user_id=e("MCP_USER_ID", cls.mcp_user_id),
             state_db=e("STATE_DB", cls.state_db),
             calendar_registry_db=e("CALENDAR_REGISTRY_DB", cls.calendar_registry_db),
             share_role=e("SHARE_ROLE", cls.share_role),

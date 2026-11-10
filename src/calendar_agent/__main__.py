@@ -65,6 +65,12 @@ def main() -> None:
         http.run(pool, cfg.tz, cfg.zelabs_route_id, master, insecure, cfg.http_host, cfg.http_port)
         return
 
+    if args[:1] == ["mcp"]:  # MCP server (stdio) wrapping the same Agent
+        from .mcp import serve
+        serve(Agent(_extractor(cfg), _calendar(cfg), Store(cfg.state_db), cfg.default_duration_min),
+              cfg.mcp_user_id, cfg.tz)
+        return
+
     agent = Agent(
         _extractor(cfg),
         _calendar(cfg),
